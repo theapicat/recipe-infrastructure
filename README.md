@@ -6,8 +6,9 @@
 ### Hovedprinsipper:
 * **Single Gateway Inngang**: All ekstern trafikk sluses gjennom én felles API Gateway (`recipe-gateway-api`).
 * **Isolerte Tjenester**: Hver applikasjon har sitt eget Git-repositorium, definerte ansvarsområder og eier sine egne data.
-* **Hybrid Kommunikasjon**: Synkroni (gRPC) brukes der lav forsinkelse er kritisk, mens asynkroni (RabbitMQ) brukes for tunge bakgrunnsjobber.
-* **Full Containerisering**: Alle tjenester, databaser og infrastrukturelementer kjører som isolerte Docker-containere koblet på et felles eksternt Docker-nettverk (`recipe-net`).
+* **Stateless Auth & Header Injection**: Gateway validerer JWT-tokens lokalt i minnet og beriker forespørsler videre internt med verifiserte identitets-headers (`X-User-Id`, `X-User-Roles`).
+* **Sentralisert Logging**: Alle tjenester sender strukturerte logger (Serilog) til et felles Seq-dashboard for full sporbarhet.
+* **Full Containerisering**: Alle infrastrukturelementer (databaser, meldingsbuss, logging) kjører som isolerte Docker-containere koblet på et felles Docker-nettverk (`recipe-net`).
 
 ---
 
@@ -15,110 +16,84 @@
 
 | Prosjektnavn (Repo) | Hovedteknologi | Rolle & Hovedansvar | Nettverkseksponering |
 | :--- | :--- | :--- | :--- |
-| **`recipe-web-app`** | Next.js, TypeScript, React | Brukergrensesnitt for web. Rendring av sider, brukermoduler, interaktive verktøy og sanntidsoppdateringer. | **Offentlig** (Port 3000 / 443) |
-| **`recipe-gateway-api`** | .NET, YARP | Sentral inngangsdør (Reverse Proxy). Håndterer SSL-terminering, routing, rate-limiting, JWT-sjekk og WebSocket-proxying. | **Offentlig** (Port 80 / 443) |
-| **`recipe-authentication-api`** | .NET, OpenIddict, ASP.NET Core Identity | Identitetsstyring. Håndterer brukerregistrering, innlogging, utstedelse og validering av OAuth2/OIDC-tokens samt bruker-admin. | **Internt Docker-nettverk** (`recipe-net`) |
-| **`recipe-core-api`** | .NET, SignalR Hub | Kjernedomenet. Håndterer forretningslogikk for oppskrifter, ingredienser og brukertilpasninger. Vert for SignalR sanntidshub. | **Internt Docker-nettverk** (`recipe-net`) |
-| **`recipe-scraper-service`** | .NET, Playwright (Headless Chromium) | Ekstern datainnhenting. Skraper, parser og strukturerer oppskrifter fra eksterne nettsider ved hjelp av nettleserautomatisering. | **Internt Docker-nettverk** (`recipe-net`) |
-| **`recipe-infrastructure`** | Docker Compose (Offisielle Images) | Felles repository for databaser og infrastrukturtjenester (PostgreSQL, MongoDB, RabbitMQ). | **Internt Docker-nettverk** (`recipe-net`) |
+| **`recipe-web-app`** | Next.js, TypeScript, React | Brukergrensesnitt for web. Rendring av sider, brukermoduler og sanntidsoppdateringer. | **Offentlig** (Port 3000) |
+| **`recipe-gateway-api`** | .NET 8/9, YARP | Sentral inngangsdør (Reverse Proxy). Håndterer CORS, YARP-routing, lokal JWT-validering og header-sanitering. | **Offentlig** (Port 5000) |
+| **`recipe-authentication-api`** | .NET, ASP.NET Core Identity | Identitetsstyring. Brukerregistrering, innlogging og utstedelse av JWT-tokens med felles hemmelig nøkkel. | **Internt / Lokal host** (Port 5001) |
+| **`recipe-core-api`** | .NET, SignalR Hub | Kjernedomenet. Forretningslogikk for oppskrifter, ingredienser og SignalR sanntidshub. | **Internt / Lokal host** (Port 5002) |
+| **`recipe-scraper-service`** | .NET, Playwright | Ekstern datainnhenting. Skraper og strukturerer oppskrifter fra eksterne nettsider. | **Internt Docker-nettverk** (`recipe-net`) |
+| **`recipe-infrastructure`** | Docker Compose | Felles repository for databaser, meldingsbuss og loggmotor. | **Internt Docker-nettverk** (`recipe-net`) |
 
 ### Infrastruktur-containere (Styrt via `recipe-infrastructure`):
-* **`recipe-auth-db`** (PostgreSQL): Lagring av brukerkontoer, passord-hashes, tilganger, roller og autentiseringshistorikk.
-* **`recipe-core-db`** (PostgreSQL): Lagring av domenefelt som oppskrifter, trinn, ingredienser, kategorier og brukermetadata.
-* **`recipe-scraper-cache`** (MongoDB): Dokumentdatabase (NoSQL) for mellomlagring av skrapt rådata og eksternt innhold med automatisk TTL (utløpstid).
-* **`recipe-message-broker`** (RabbitMQ): Meldingsbuss for asynkron oppgavekø, belastningsstyring og hendelsesbasert kommunikasjon (Event-driven).
+* **`recipe-auth-db`** (PostgreSQL - Port 5432): Lagring av brukerkontoer, passord-hashes, tilganger og roller.
+* **`recipe-core-db`** (PostgreSQL - Port 5433 på vert): Lagring av oppskrifter, trinn, ingredienser og kategorier.
+* **`recipe-scraper-cache`** (MongoDB - Port 27017): Dokumentdatabase for mellomlagring av skrapt rådata.
+* **`recipe-message-broker`** (RabbitMQ - Port 5672 / 15672): Meldingsbuss for asynkron oppgavekø og hendelsesbasert kommunikasjon.
+* **`recipe-seq`** (Seq - Port 5341): Sentralisert dashboard for mottak og visualisering av strukturerte Serilog-logger.
 
 ---
 
 ## 3. Kommunikasjonsmodeller og Protokoller
 
-Kommunikasjonen i systemet er delt inn etter behov for responstid og belastning:
-
 
 ```
 =================================================================================
-                            [ recipe-web-app ]
-                            (Next.js Frontend)
+                               [ recipe-web-app ]
+                               (Next.js Frontend)
 =================================================================================
-                                    |
-                         HTTP REST / WebSockets
-                                    v
+                                       |
+                            HTTP REST / WebSockets
+                                       v
 =================================================================================
-                         [ recipe-gateway-api ]
-                           (YARP API Gateway)
+                             [ recipe-gateway-api ]
+                          (YARP Gateway - Port 5000)
 =================================================================================
            |                                             |
-     gRPC (Auth)                                   gRPC (Data)
+    HTTP REST (/api/auth)                   HTTP REST (/api/public, /user, /hubs)
            v                                             v
 +-------------------------------+             +---------------------------------+
 |  recipe-authentication-api    |             |        recipe-core-api          |
-|    (OAuth2 / OpenIddict)      |             |    (Core API & SignalR Hub)     |
+|    (Port 5001 - Auth API)     |             |  (Port 5002 - Core & SignalR)   |
 +-------------------------------+             +---------------------------------+
-           |                                       |       ^                ^
-           v                                  gRPC |       | SignalR        | 
-   [recipe-auth-db]                        (Cache) |       | Event Push     | 
-     (PostgreSQL)                                  v       |                |
-                                              +---------------------+       |
-                                              | recipe-scraper-     |       |
-                                              |      service        |       |
-                                              +---------------------+       |
-                                                   |         |              |
-                                                   v         v              |
+           |                                   |         |              ^
+           v                               SQL |    gRPC |         AMQP | Event Push
+   [recipe-auth-db]                            v         v              |
+     (PostgreSQL)                       [recipe-core-db] |              |
+                                          (PostgreSQL)   v              |
+                                              +---------------------+   |
+                                              | recipe-scraper-     |   |
+                                              |      service        |   |
+                                              +---------------------+   |
+                                                 |             |        |
+                                         MongoDB |        AMQP |        |
+                                                 v             v        |
                                         [recipe-scraper-  [recipe-message-broker]
-                                            cache]           (RabbitMQ)-----+
+                                            cache]           (RabbitMQ)---------+
                                           (MongoDB)
-
 ```
 
 ### Kommunikasjonsprotokoller:
-1. **HTTP REST (Ekstern $\rightarrow$ Gateway)**: Standardisert JSON-basert HTTP-kommunikasjon fra `recipe-web-app` til `recipe-gateway-api`.
-2. **WebSockets / SignalR (Ekstern $\leftrightarrow$ Gateway $\leftrightarrow$ Core API)**: Toveis sanntidsforbindelse for å skyve oppdateringer fra `recipe-core-api` til klienten uten sideinnlasting.
-3. **gRPC (Gateway $\rightarrow$ Interne Tjenester & Core $\rightarrow$ Scraper)**: Høyytelses binær protokoll med streng typesikkerhet. Brukes til synkrone interne interaksjoner hvor lavest mulig latens kreves.
-4. **RabbitMQ AMQP (Core API $\leftrightarrow$ Scraper Service)**: Asynkron meldingskø for frikobling av krevende operasjoner.
+1. **HTTP REST (Ekstern $\rightarrow$ Gateway $\rightarrow$ Mikrotjenester)**: Standard JSON-basert HTTP-kommunikasjon. Gateway validerer JWT og ruter kallet videre til riktig API over HTTP.
+2. **WebSockets / SignalR (Ekstern $\leftrightarrow$ Gateway $\leftrightarrow$ Core API)**: Toveis sanntidsforbindelse. Gateway ruter `/hubs`-endepunkter videre med tilhørende access tokens.
+3. **gRPC (Core $\rightarrow$ Scraper Service)**: Høyytelses binær protokoll for direkte, synkro interne cache-sjekker og spørringer.
+4. **RabbitMQ AMQP (Core API $\leftrightarrow$ Scraper Service)**: Asynkron meldingskø for krevende bakgrunnsjobber (f.eks. tunge skrapeoperasjoner).
 
 ---
 
 ## 4. Informasjonsflyt og Prosesser
 
 ### Prosess A: Standard Forespørsel & Autentisering (Synkron)
-1. Klienten sender en HTTP-forespørsel med et JWT-token i headeren til **`recipe-gateway-api`**.
-2. **`recipe-gateway-api`** validerer tokenet (ved hjelp av **`recipe-authentication-api`** sin offentlige nøkkel/JWKS).
-3. Dersom tokenet er gyldig, beriker Gateway forespørselen med en intern identitetsheader (`X-User-Id`) og ruter kallet videre til **`recipe-core-api`** over **gRPC**.
-4. **`recipe-core-api`** behandler forespørselen mot **`recipe-core-db`** og returnerer svaret tilbake samme vei.
-
-### Prosess B: Skraping av Ekstern Oppskrift (Hybrid Synkron / Asynkron)
-1. **Initiell forespørsel**: Bruker limer inn en ekstern URL i `recipe-web-app`. Klienten sender forespørsel til Gateway.
-2. **Rask Cache-sjekk (Synkron gRPC)**: `recipe-core-api` gjør et umiddelbart gRPC-kall til **`recipe-scraper-service`**: *"Finnes denne URL-en i cachen?"*
-   * **Treff i cache**: Data hentes direkte fra **`recipe-scraper-cache`** (MongoDB), returneres til `recipe-core-api`, og videre til brukeren.
-   * **Ikke i cache**: Prosessen går over til asynkron modus.
-3. **Asynkron Skrapejobb**:
-   * `recipe-core-api` legger en oppgavemelding (`ScrapeRecipeCommand`) på **`recipe-message-broker`** (RabbitMQ) og returnerer status `202 Accepted` til klienten.
-   * Frontend viser en visuell indikator ("Henter oppskrift...").
-4. **Bakgrunnsutførelse**:
-   * **`recipe-scraper-service`** plukker jobben fra RabbitMQ i et kontrollert tempo, kjører **Playwright (Chromium)** for å rendre og hente ut strukturerte data, og lagrer rådataen i **`recipe-scraper-cache`**.
-   * Scraper Service publiserer deretter en hendelsesmelding (`RecipeScrapedEvent`) tilbake på RabbitMQ.
-5. **Sanntidsvarsling (SignalR Push)**:
-   * **`recipe-core-api`** lytter på hendelsen fra RabbitMQ, prosesserer og lagrer den nye oppskriften i **`recipe-core-db`**.
-   * Core API benytter sin **SignalR Hub** til å sende en "oppskrift klar"-melding direkte til brukerens aktive WebSocket-forbindelse.
-   * **`recipe-web-app`** mottar meldingen og oppdaterer UI-et sømløst i sanntid.
+1. Klienten sender en HTTP-forespørsel med et JWT Bearer-token i headeren til **`recipe-gateway-api`**.
+2. **`recipe-gateway-api`** validerer tokenet **lokalt i minnet** vha. den delte `JWT__KEY`.
+3. Gateway fjerner eventuelle innkommende `X-User-Id` / `X-User-Roles` headers fra klienten for å forhindre spoofing.
+4. Dersom tokenet er gyldig, injiserer Gateway nye, verifiserte `X-User-Id`- og `X-User-Roles`-headers og ruter forespørselen videre over HTTP til **`recipe-core-api`** eller **`recipe-authentication-api`**.
+5. Mikrotjenesten behandler forespørselen og returnerer svaret.
 
 ---
 
 ## 5. Sikkerhet og Identitetsstyring
 
-* **Sentralisert Token-validering**: `recipe-gateway-api` fungerer som et skjold mot omverdenen. Ingenting slipper gjennom til interne tjenester uten gyldig autentisering.
-* **Isolering av Brukerdata**: `recipe-authentication-api` eier alt som har med passord, tokens, tofaktorautentisering og brukerkontoer å gjøre. `recipe-core-api` forholder seg kun til bruker-ID-er (`X-User-Id`), noe som sikrer at sensitive innloggingsdata aldri blandes med oppskriftsdata.
-* **Sikre Interne Nettverk**: Kun `recipe-gateway-api` og `recipe-web-app` er tilgjengelige fra utsiden. Alle mikrotjenester, meldingskøer og databaser ligger skjermet i det interne Docker-nettverket.
+* **Sentralisert Token-validering i Gateway**: Ingen uautentiserte forespørsler slipper gjennom til beskyttede endepunkter i bakenden.
+* **Isolering av Brukerdata**: `recipe-authentication-api` eier brukeridentiteter. `recipe-core-api` forholder seg kun til verifiserte identitets-headers (`X-User-Id`), noe som sikrer at sensitive innloggingsdata aldri leker inn i domenelagene.
+* **Sikre Interne Nettverk**: Kun `recipe-gateway-api` og `recipe-web-app` skal eksponeres eksternt i produksjon. Alle databaser, meldingskøer og interne APIs kommuniserer skjermet på Docker-nettverket (`recipe-net`).
 
----
-
-## 6. Driftsmodell og Docker-organisering
-
-* **Felles Eksternt Docker-nettverk (`recipe-net`)**: 
-  * Nettverket `recipe-net` opprettes og eies av **`recipe-infrastructure`**-repositoriet.
-  * Alle andre applikasjons-repoer (`recipe-core-api`, `recipe-authentication-api`, osv.) kobler seg til dette nettverket som et eksternt nettverk (`external: true`).
-* **Intern Navneoppslag (DNS)**: Tjenestene kommuniserer direkte med hverandre på `recipe-net` via sine definerte containernavn (f.eks. `http://recipe-authentication-api`, `http://recipe-scraper-service`, `amqp://recipe-message-broker`).
-* **Spesialiserte Base-images**:
-  * Standard .NET-tjenester kjører på slanke, optimaliserte ASP.NET runtime-images.
-  * `recipe-scraper-service` kjører på Microsofts offisielle Playwright .NET-image som inneholder alle nødvendige OS-biblioteker for kjøring av headless nettlesere.
-* **Persistent Datalagring**: Både PostgreSQL-instansene og MongoDB benytter dedikerte Docker Volumes definert i `recipe-infrastructure` for å garantere at data overlever container-oppdateringer og omstarter.
+```
