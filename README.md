@@ -96,4 +96,17 @@
 * **Isolering av Brukerdata**: `recipe-authentication-api` eier brukeridentiteter. `recipe-core-api` forholder seg kun til verifiserte identitets-headers (`X-User-Id`), noe som sikrer at sensitive innloggingsdata aldri leker inn i domenelagene.
 * **Sikre Interne Nettverk**: Kun `recipe-gateway-api` og `recipe-web-app` skal eksponeres eksternt i produksjon. Alle databaser, meldingskøer og interne APIs kommuniserer skjermet på Docker-nettverket (`recipe-net`).
 
-```
+
+## 6. Lokal E-posttesting (Mailpit)
+
+I utviklingsmiljøet benyttes **Mailpit** som en lokal, felles SMTP-samlekasse (catch-all) for å teste alle e-postflyter (bekreftelser, passordtilbakestillinger, varsler) helt trygt uten eksterne e-postservere.
+
+* **SMTP Host (fra vert/lokal app):** `localhost:1025`
+* **SMTP Host (internt i Docker-nettverk):** `recipe-mailpit:1025`
+* **Web UI Innboks:** `http://localhost:8025`
+* **Autentisering:** Ingen (pass-through)
+
+### Hurtigstart
+1. Start tjenesten via Docker Compose:
+   ```bash
+   docker compose up -d recipe-mailpit
