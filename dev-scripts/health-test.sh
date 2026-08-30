@@ -11,14 +11,15 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 echo -e "${CYAN}====================================================${NC}"
-echo -e "${CYAN}   🏥 Utfører Helsesjekk på Kjøkkenhylla         ${NC}"
+echo -e "${CYAN}   🏥 Utfører Helsesjekk på Recipe Applikasjonen ${NC}"
 echo -e "${CYAN}====================================================${NC}\n"
 
+# Kun HTTP REST APIs og Dashboards sjekkes her
 declare -A SERVICES=(
     ["Seq Log Dashboard"]="http://localhost:5341"
+    ["Mailpit Web UI"]="http://localhost:8025"
     ["recipe-authentication-api"]="http://localhost:5001/api/auth/health"
     ["recipe-core-api"]="http://localhost:5002/api/public/health"
-    ["recipe-scraper-api"]="http://localhost:5003/api/scraper/health"
     ["recipe-gateway-api"]="http://localhost:5000/api/gateway/health"
     ["recipe-webapp"]="http://localhost:3000/api/health"
 )
@@ -50,15 +51,15 @@ check_health() {
 
 # Kjøre helsesjekkene i definert rekkefølge
 check_health "Seq Log Dashboard" "${SERVICES["Seq Log Dashboard"]}"
+check_health "Mailpit Web UI" "${SERVICES["Mailpit Web UI"]}"
 check_health "recipe-authentication-api" "${SERVICES["recipe-authentication-api"]}"
 check_health "recipe-core-api" "${SERVICES["recipe-core-api"]}"
-check_health "recipe-scraper-api" "${SERVICES["recipe-scraper-api"]}"
 check_health "recipe-gateway-api" "${SERVICES["recipe-gateway-api"]}"
 check_health "recipe-webapp" "${SERVICES["recipe-webapp"]}"
 
 echo -e "\n${CYAN}====================================================${NC}"
 if [ "$all_healthy" = true ]; then
-    echo -e "${GREEN}🎉 Alle tjenester er oppe og nikker!${NC}"
+    echo -e "${GREEN}🎉 Alle HTTP-tjenester og dashboards er oppe og nikker!${NC}"
 else
     echo -e "${RED}⚠️ En eller flere tjenester svarte ikke korrekt.${NC}"
 fi

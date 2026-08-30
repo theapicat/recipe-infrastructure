@@ -16,7 +16,7 @@ INFRA_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ROOT_DIR="$(cd "$INFRA_DIR/.." && pwd)"
 
 echo -e "${CYAN}====================================================${NC}"
-echo -e "${CYAN}   🚀 Starter Kjøkkenhylla Utviklingsmiljø        ${NC}"
+echo -e "${CYAN}   🚀 Starter Recipe Utviklingsmiljø               ${NC}"
 echo -e "${CYAN}====================================================${NC}"
 
 # 1. Åpne separate terminalvinduer for hver tjeneste
@@ -35,22 +35,23 @@ start_service_window() {
     $TERM_CMD --title="$title" -- bash -c "cd '$dir' && echo -e '${CYAN}=== $title ===${NC}\n' && $cmd; exec bash" >/dev/null 2>&1 &
 }
 
-start_service_window "Auth API (5001)"    "$ROOT_DIR/recipe-auth-api/API"    "dotnet watch"
-start_service_window "Core API (5002)"    "$ROOT_DIR/recipe-core-api/API"    "dotnet watch"
-start_service_window "Scraper API (5003)" "$ROOT_DIR/recipe-scraper-api/API" "dotnet watch"
-start_service_window "Gateway API (5000)" "$ROOT_DIR/recipe-gateway-api/API" "dotnet watch"
-start_service_window "Web App (3000)"     "$ROOT_DIR/recipe-webapp"          "npm run dev"
+start_service_window "Auth API (5001)"          "$ROOT_DIR/recipe-auth-api/API"               "dotnet watch"
+start_service_window "Core API (5002)"          "$ROOT_DIR/recipe-core-api/API"               "dotnet watch"
+start_service_window "Scraper Service"          "$ROOT_DIR/recipe-scraper-service/Service"    "dotnet watch"
+start_service_window "Notification Service"     "$ROOT_DIR/recipe-notification-service/Service" "dotnet watch"
+start_service_window "Gateway API (5000)"       "$ROOT_DIR/recipe-gateway-api/API"            "dotnet watch"
+start_service_window "Web App (3000)"           "$ROOT_DIR/recipe-webapp"                     "npm run dev"
 
-echo -e "   ${GREEN}✔ 5 terminalvinduer er åpnet på skrivebordet!${NC}"
+echo -e "   ${GREEN}✔ 6 terminalvinduer er åpnet på skrivebordet!${NC}"
 
-# 2. Helsesjekk i hovedterminalen
-echo -e "\n🏥 [2/2] Utfører helsesjekk på alle tjenester..."
+# 2. Helsesjekk i hovedterminalen for HTTP-baserte tjenester
+echo -e "\n🏥 [2/2] Utfører helsesjekk på HTTP-tjenester..."
 
 declare -A SERVICES=(
     ["Seq Log Dashboard"]="http://localhost:5341"
+    ["Mailpit Web UI"]="http://localhost:8025"
     ["recipe-authentication-api"]="http://localhost:5001/api/auth/health"
     ["recipe-core-api"]="http://localhost:5002/api/public/health"
-    ["recipe-scraper-api"]="http://localhost:5003/api/scraper/health"
     ["recipe-gateway-api"]="http://localhost:5000/api/gateway/health"
     ["recipe-webapp"]="http://localhost:3000/api/health"
 )
@@ -79,9 +80,9 @@ check_health() {
 
 # Kjøre helsesjekkene i definert rekkefølge
 check_health "Seq Log Dashboard" "${SERVICES["Seq Log Dashboard"]}"
+check_health "Mailpit Web UI" "${SERVICES["Mailpit Web UI"]}"
 check_health "recipe-authentication-api" "${SERVICES["recipe-authentication-api"]}"
 check_health "recipe-core-api" "${SERVICES["recipe-core-api"]}"
-check_health "recipe-scraper-api" "${SERVICES["recipe-scraper-api"]}"
 check_health "recipe-gateway-api" "${SERVICES["recipe-gateway-api"]}"
 check_health "recipe-webapp" "${SERVICES["recipe-webapp"]}"
 
