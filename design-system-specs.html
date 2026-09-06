@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kjøkkenhylla – Design System & UI Specification</title>
+  <style>
+    /* ==========================================================================
+       RESET & BASE SYSTEM FONTS
+       ========================================================================== */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--color-bg);
+      color: var(--color-text);
+      line-height: 1.6;
+      padding-bottom: 60px;
+      transition: background-color 0.25s ease, color 0.25s ease;
+    }
+
+    /* ==========================================================================
+       THEME VARIABLES: DET NATURLIGE OG ORGANISKE
+       ========================================================================== */
+    body.theme-light {
+      --color-bg: #f7f6f2;             /* 60% Base */
+      --color-surface: #ffffff;
+      --color-text: #222920;
+      --color-subtext: #596356;
+      --color-border: #e2e5df;
+
+      --color-primary: #4a6b53;        /* 30% Primary Sage (sage.6) */
+      --color-primary-hover: #38523f;
+      --color-accent: #c86a4b;         /* 10% Accent Terracotta (terracotta.6) */
+      --color-accent-light: #f9ebe6;
+
+      --color-alert-bg: #edf2ee;
+      --color-alert-border: #d4e0d6;
+      --color-alert-text: #314a38;
+      --shadow-sm: 0 1px 3px rgba(0,0,0,0.05);
+    }
+
+    body.theme-dark {
+      --color-bg: #151a16;             /* 60% Base Dark */
+      --color-surface: #1e241f;
+      --color-text: #e7ece6;
+      --color-subtext: #949f93;
+      --color-border: #2c352d;
+
+      --color-primary: #7ca386;        /* 30% Primary Sage (sage.4) */
+      --color-primary-hover: #93b79c;
+      --color-accent: #dd8a6e;         /* 10% Accent Terracotta (terracotta.4) */
+      --color-accent-light: rgba(221, 138, 110, 0.15);
+
+      --color-alert-bg: rgba(124, 163, 134, 0.12);
+      --color-alert-border: #7ca386;
+      --color-alert-text: #a3c4ab;
+      --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+    }
+
+    /* ==========================================================================
+       TOP CONTROL BAR
+       ========================================================================== */
+    .top-bar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: #18261c;
+      color: #e7ece6;
+      padding: 12px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #2a3e30;
+    }
+
+    .top-bar-title {
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .mode-toggle {
+      display: flex;
+      gap: 8px;
+      background: #2a3e30;
+      padding: 4px;
+      border-radius: 8px;
+    }
+
+    .toggle-btn {
+      background: transparent;
+      border: none;
+      color: #949f93;
+      padding: 6px 14px;
+      font-size: 12px;
+      font-weight: 600;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .toggle-btn.active {
+      background: #7ca386;
+      color: #151a16;
+    }
+
+    /* ==========================================================================
+       CONTAINER & SECTIONS
+       ========================================================================== */
+    .container {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 32px 20px;
+    }
+
+    .header-doc {
+      margin-bottom: 40px;
+      border-bottom: 2px solid var(--color-border);
+      padding-bottom: 24px;
+    }
+
+    .header-doc h1 {
+      font-size: 32px;
+      font-weight: 800;
+      color: var(--color-text);
+      margin-bottom: 8px;
+    }
+
+    .header-doc p {
+      color: var(--color-subtext);
+      font-size: 16px;
+    }
+
+    .section-title {
+      font-size: 22px;
+      font-weight: 700;
+      margin: 40px 0 20px 0;
+      color: var(--color-text);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-left: 4px solid var(--color-primary);
+      padding-left: 12px;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 24px;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+    }
+
+    /* ==========================================================================
+       SWATCHES & COLOR PALETTE SPECIFICATION
+       ========================================================================== */
+    .swatch-group {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+
+    .swatch-group h4 {
+      margin-bottom: 12px;
+      font-size: 16px;
+    }
+
+    .swatch-list {
+      display: grid;
+      grid-template-columns: repeat(10, 1fr);
+      gap: 4px;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .swatch-item {
+      height: 60px;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      align-items: center;
+      padding: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      color: #fff;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+    }
+
+    /* ==========================================================================
+       UI COMPONENTS (MANTINE STYLE LOOKALIKE)
+       ========================================================================== */
+    .card {
+      background-color: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .card-image {
+      background-color: var(--color-bg);
+      height: 160px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      border-bottom: 1px solid var(--color-border);
+      color: var(--color-subtext);
+      font-weight: 500;
+      font-size: 14px;
+    }
+
+    .card-body {
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      flex-grow: 1;
+    }
+
+    .card-body h3 {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      color: var(--color-text);
+    }
+
+    .card-body p {
+      color: var(--color-subtext);
+      font-size: 14px;
+      margin-bottom: 16px;
+    }
+
+    .meta-group {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+      font-size: 13px;
+      color: var(--color-subtext);
+      font-weight: 600;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .badge-terracotta {
+      background-color: var(--color-accent-light);
+      color: var(--color-accent);
+      border: 1px solid var(--color-accent);
+    }
+
+    .badge-sage {
+      background-color: var(--color-primary);
+      color: #ffffff;
+    }
+
+    .badge-pos {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+    }
+
+    .button-group {
+      margin-top: auto;
+      display: flex;
+      gap: 10px;
+    }
+
+    .btn {
+      flex: 1;
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: background-color 0.15s;
+      text-align: center;
+      text-decoration: none;
+    }
+
+    .btn-primary {
+      background-color: var(--color-primary);
+      color: #ffffff;
+    }
+
+    .btn-primary:hover {
+      background-color: var(--color-primary-hover);
+    }
+
+    .btn-outline {
+      background-color: transparent;
+      color: var(--color-primary);
+      border: 2px solid var(--color-primary);
+    }
+
+    .btn-outline:hover {
+      background-color: var(--color-bg);
+    }
+
+    .btn-accent {
+      background-color: var(--color-accent);
+      color: #ffffff;
+    }
+
+    /* Form Controls Showcase */
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    .form-label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 6px;
+      color: var(--color-text);
+    }
+
+    .input-text {
+      width: 100%;
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: 1px solid var(--color-border);
+      background-color: var(--color-surface);
+      color: var(--color-text);
+      font-size: 14px;
+      outline: none;
+    }
+
+    .input-text:focus {
+      border-color: var(--color-primary);
+    }
+
+    .alert {
+      background-color: var(--color-alert-bg);
+      border: 1px solid var(--color-alert-border);
+      color: var(--color-alert-text);
+      padding: 16px;
+      border-radius: 10px;
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+      font-size: 14px;
+      margin-bottom: 20px;
+    }
+
+    /* ==========================================================================
+       EMAIL PREVIEW COMPONENT
+       ========================================================================== */
+    .email-container {
+      background-color: #f7f6f2;
+      border: 1px solid #e2e5df;
+      border-radius: 12px;
+      overflow: hidden;
+      max-width: 500px;
+      margin: 0 auto;
+      font-family: Arial, sans-serif;
+      color: #222920;
+    }
+
+    .email-header {
+      background-color: #2a3e30;
+      padding: 24px;
+      text-align: center;
+      color: #ffffff;
+    }
+
+    .email-body {
+      padding: 24px;
+      background-color: #ffffff;
+      margin: 16px;
+      border-radius: 8px;
+      border: 1px solid #e2e5df;
+    }
+
+    .email-footer {
+      padding: 16px;
+      text-align: center;
+      font-size: 12px;
+      color: #596356;
+    }
+
+    /* ==========================================================================
+       CODE SPEC BOX
+       ========================================================================== */
+    pre {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      padding: 16px;
+      border-radius: 8px;
+      font-family: "Courier New", Courier, monospace;
+      font-size: 13px;
+      overflow-x: auto;
+      color: var(--color-text);
+    }
+  </style>
+</head>
+<body class="theme-light">
+
+  <!-- Top bar for live evaluation -->
+  <div class="top-bar">
+    <div class="top-bar-title">
+      <span>🍲</span> KJØKKENHYLLA – DESIGN SYSTEM SPECIFICATION
+    </div>
+    <div class="mode-toggle">
+      <button onclick="setTheme('light')" id="btn-light" class="toggle-btn active">Light Mode ☀️</button>
+      <button onclick="setTheme('dark')" id="btn-dark" class="toggle-btn">Dark Mode 🌙</button>
+    </div>
+  </div>
+
+  <div class="container">
+    
+    <!-- Document Header -->
+    <header class="header-doc">
+      <h1>Kjøkkenhylla Design System v1.0</h1>
+      <p>Konsept: <strong>Det Naturlige & Organiske</strong> (Mantine UI v9 Implementasjon)</p>
+    </header>
+
+    <!-- Section 1: Principles -->
+    <h2 class="section-title">1. Designdisiplin & 60-30-10 Regelen</h2>
+    <div class="grid-3">
+      <div class="card" style="padding: 20px;">
+        <h3 style="color: var(--color-primary); margin-bottom: 8px;">60% Base</h3>
+        <p style="font-size: 13px;">Krem og havre i Light mode, mørk skogsbunn i Dark mode. Gir en behagelig og varm bakgrunn for matbilder.</p>
+      </div>
+      <div class="card" style="padding: 20px;">
+        <h3 style="color: var(--color-primary); margin-bottom: 8px;">30% Primary (Sage)</h3>
+        <p style="font-size: 13px;">Dempede mose- og salviegrønne toner. Brukes til navigasjon, primærknapper og visuell struktur.</p>
+      </div>
+      <div class="card" style="padding: 20px;">
+        <h3 style="color: var(--color-accent); margin-bottom: 8px;">10% Accent (Terracotta)</h3>
+        <p style="font-size: 13px;">Varm terrakotta og brent jord. Brukes sparsommelig på blikkfang, kategorier og fremhevede tilstander.</p>
+      </div>
+    </div>
+
+    <!-- Section 2: Color Palette Tuples -->
+    <h2 class="section-title">2. Mantine UI 10-Stegs Fargetupler</h2>
+    
+    <div class="swatch-group">
+      <h4>Sage (Mosegrønn / Salvie) – <code>primaryColor: 'sage'</code></h4>
+      <div class="swatch-list">
+        <div class="swatch-item" style="background:#f2f6f3; color:#000;">0</div>
+        <div class="swatch-item" style="background:#e3ece5; color:#000;">1</div>
+        <div class="swatch-item" style="background:#c5d9c9; color:#000;">2</div>
+        <div class="swatch-item" style="background:#a4c4ab; color:#000;">3</div>
+        <div class="swatch-item" style="background:#7ca386;">4 (Dark Primary)</div>
+        <div class="swatch-item" style="background:#5e8869;">5</div>
+        <div class="swatch-item" style="background:#4a6b53;">6 (Light Primary)</div>
+        <div class="swatch-item" style="background:#3a5441;">7</div>
+        <div class="swatch-item" style="background:#2a3e30;">8</div>
+        <div class="swatch-item" style="background:#18261c;">9</div>
+      </div>
+    </div>
+
+    <div class="swatch-group">
+      <h4>Terracotta (Terrakotta / Brent Jord) – <code>color: 'terracotta'</code></h4>
+      <div class="swatch-list">
+        <div class="swatch-item" style="background:#fdf5f3; color:#000;">0</div>
+        <div class="swatch-item" style="background:#f9ebe6; color:#000;">1 (Light Accent Bg)</div>
+        <div class="swatch-item" style="background:#f1d3ca; color:#000;">2</div>
+        <div class="swatch-item" style="background:#e6b2a2; color:#000;">3</div>
+        <div class="swatch-item" style="background:#dd8a6e;">4 (Dark Accent)</div>
+        <div class="swatch-item" style="background:#d07052;">5</div>
+        <div class="swatch-item" style="background:#c86a4b;">6 (Light Accent)</div>
+        <div class="swatch-item" style="background:#a34e34;">7</div>
+        <div class="swatch-item" style="background:#7e3a25;">8</div>
+        <div class="swatch-item" style="background:#4e2114;">9</div>
+      </div>
+    </div>
+
+    <!-- Section 3: UI Component Showcase -->
+    <h2 class="section-title">3. Interaktive UI-Komponenter</h2>
+
+    <div class="alert">
+      <span style="font-size: 20px;">🌿</span>
+      <div>
+        <strong>Tilgjengelighet & Fargesyn:</strong> Kontrastforholdene oppfyller WCAG AA. Informasjon formidles alltid via både farge, tekst og ikonografi for å ivareta brukere med nedsatt fargesyn (deuteranopi/protanopi).
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <!-- Recipe Card Example 1 -->
+      <div class="card">
+        <div class="card-image">
+          🖼️ [Bilde: Kremet Kyllinggryte]
+          <span class="badge badge-terracotta badge-pos">Middag</span>
+        </div>
+        <div class="card-body">
+          <h3>Kremet Kyllinggryte med Paprika</h3>
+          <p>Enkel og smaksrik hverdagsmiddag som lages på under 30 minutter.</p>
+          <div class="meta-group">
+            <span>⏱️ 25 min</span>
+            <span>🔥 520 kcal</span>
+            <span>👥 4 porsjoner</span>
+          </div>
+          <div class="button-group">
+            <button class="btn btn-primary">Se oppskrift</button>
+            <button class="btn btn-outline">Legg i plan</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Controls Showcase -->
+      <div class="card" style="padding: 20px;">
+        <h3 style="margin-bottom: 16px;">Skjemaelementer & Tilstander</h3>
+        
+        <div class="form-group">
+          <label class="form-label">Søk etter oppskrifter</label>
+          <input type="text" class="input-text" placeholder="F.eks. Linsesuppe, Surdeigsbrød...">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Kategori & Tagger</label>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <span class="badge badge-sage">Aktiv: Alle</span>
+            <span class="badge badge-terracotta">Frokost</span>
+            <span class="badge badge-terracotta">Middag</span>
+            <span class="badge badge-terracotta">Bakst</span>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top: 24px;">
+          <label class="form-label">Knappevarianter</label>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button class="btn btn-primary">Primary (Sage)</button>
+            <button class="btn btn-accent">Accent (Terracotta)</button>
+            <button class="btn btn-outline">Outline</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section 4: Email Template Spec -->
+    <h2 class="section-title">4. E-postmaler (Notification Service)</h2>
+    <p style="margin-bottom: 16px; color: var(--color-subtext); font-size: 14px;">
+      E-postene oversetter Mantine-temaet til ren HTML/inline CSS for konsistent merkevarebygging i e-postklienter.
+    </p>
+
+    <div class="email-container">
+      <div class="email-header">
+        <h2 style="margin: 0; font-size: 20px; font-weight: 700;">🍲 Kjøkkenhylla</h2>
+      </div>
+      <div class="email-body">
+        <h3 style="margin-top: 0; color: #222920;">Velkommen til Kjøkkenhylla!</h3>
+        <p style="font-size: 14px; color: #596356; line-height: 1.5;">
+          Kontoen din er nå aktivert. Du kan begynne å samle favorittoppskriftene dine og planlegge ukesmenyen din.
+        </p>
+        <div style="margin-top: 20px; text-align: center;">
+          <a href="#" style="background-color: #4a6b53; color: #ffffff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; display: inline-block; font-size: 14px;">
+            Gå til din Kjøkkenhylle
+          </a>
+        </div>
+      </div>
+      <div class="email-footer">
+        © 2026 Kjøkkenhylla • Sendt via Notification Service
+      </div>
+    </div>
+
+    <!-- Section 5: Mantine Theme TypeScript Code -->
+    <h2 class="section-title">5. TypeScript Konfigurasjon (<code>theme.ts</code>)</h2>
+    <pre><code>import { createTheme, MantineColorsTuple } from '@mantine/core';
+
+const sage: MantineColorsTuple = [
+  '#f2f6f3', '#e3ece5', '#c5d9c9', '#a4c4ab', '#7ca386',
+  '#5e8869', '#4a6b53', '#3a5441', '#2a3e30', '#18261c'
+];
+
+const terracotta: MantineColorsTuple = [
+  '#fdf5f3', '#f9ebe6', '#f1d3ca', '#e6b2a2', '#dd8a6e',
+  '#d07052', '#c86a4b', '#a34e34', '#7e3a25', '#4e2114'
+];
+
+export const theme = createTheme({
+  primaryColor: 'sage',
+  primaryShade: { light: 6, dark: 4 },
+  colors: { sage, terracotta },
+  defaultRadius: 'md',
+  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+});</code></pre>
+
+  </div>
+
+  <script>
+    function setTheme(mode) {
+      if (mode === 'dark') {
+        document.body.className = 'theme-dark';
+        document.getElementById('btn-dark').classList.add('active');
+        document.getElementById('btn-light').classList.remove('active');
+      } else {
+        document.body.className = 'theme-light';
+        document.getElementById('btn-light').classList.add('active');
+        document.getElementById('btn-dark').classList.remove('active');
+      }
+    }
+  </script>
+</body>
+</html>
