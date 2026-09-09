@@ -9,12 +9,12 @@
 * **Asynkron meldingsbehandling:** Integrert med MassTransit over RabbitMQ.
 * **Malmotor:** Scriban HTML-maler strukturert under domenespesifikke mapper (`UserActions`, `SystemActions`, `AdminActions`).
 * **Resiliens & Feilhåndtering:**
-  * **Fail-Fast:** Malkompilerings- og syntaksfeil kaster `TemplateRenderException` og avbrytes umiddelbart uten gjenforsøk.
-  * **In-line Retry Strategy:** Transient feil mot SMTP prøves på nytt opptil 5 ganger før meldingen paktles og lagres i MongoDB.
-  * **Hard Bounce Detection:** Ved permanent avviste adresser (f.eks. `550 User unknown`) avbrytes videre forsøk, og `InvalidEmailDetectedEvent` publiseres til Auth API.
+    * **Fail-Fast:** Malkompilerings- og syntaksfeil kaster `TemplateRenderException` og avbrytes umiddelbart uten gjenforsøk.
+    * **In-line Retry Strategy:** Transient feil mot SMTP prøves på nytt opptil 5 ganger før meldingen paktles og lagres i MongoDB.
+    * **Hard Bounce Detection:** Ved permanent avviste adresser (f.eks. `550 User unknown`) avbrytes videre forsøk, og `InvalidEmailDetectedEvent` publiseres til Auth API.
 * **Tilstandsstyring & Admin-varsling:**
-  * Singleton `NotificationStateStore` sporer om det finnes ubehandlede e-poster og sikrer avduplisert e-postvarsel til administrator.
-  * Egen oppstartsjobb (`StateStoreInitializerHostedService`) sjekker MongoDB ved applikasjonsstart og setter tilstand dersom uleverte meldinger gjenstår.
+    * Singleton `NotificationStateStore` sporer om det finnes ubehandlede e-poster og sikrer avduplisert e-postvarsel til administrator.
+    * Egen oppstartsjobb (`StateStoreInitializerHostedService`) sjekker MongoDB ved applikasjonsstart og setter tilstand dersom uleverte meldinger gjenstår.
 
 ---
 
@@ -73,22 +73,24 @@ recipe-notification-service/
 
 ---
 
-## 🗺️ Roadmap & Kompakt Sjekkliste
+## 🐳 Containerisering & Kjøring
 
-* [x] **Fase 1: Tilstandsstyring & Resiliens** (`NotificationStateStore`, `PendingEmailService`, oppstartsjobb).
-* [x] **Fase 2: Management Kontrakter & Consumers** (MongoDB request-response og admin-kommandoer).
-* [x] **Fase 3: Refaktorering av Prosessorer** (Migrert alle `UserActions`, `SystemActions` og `AdminActions` til `IPendingEmailService`).
-* [ ] **Fase 4: Testing (`Tests/`)**
-* [ ] Enhetstester for prosessorer (`NSubstitute`, `Shouldly`).
-* [ ] Enhetstester for infrastruktur og resiliens (`PendingEmailService`, `NotificationStateStore`).
-* [ ] Integrasjonstester for HTML-maler (`TemplateRenderService` mot Scriban).
-* [ ] Komponenttester for Consumers (`MassTransit.TestHarness`).
+Tjenesten kjører isolert i sin egen **Docker-container** som en integrert del av Kjøkkenhylla-økosystemet:
+
+* **Egen Dockerfile:** Bygget som en lettvekts .NET Worker Service-container.
+* **Orkestrering:** Kjører sammen med RabbitMQ, MongoDB, Mailpit og de øvrige mikrotjenestene via plattformens felles `docker-compose`-oppsett.
+
+---
+
+## 🔮 Fremtidige Utvidelser (Planlegges)
+
+* [ ] **Optimalisering av Maler & Ressurser**
+* Erstatte inlinede SVG-ikoner i HTML-malene med eksterne bildelenker (URL-ressurser fra sentralt CDN/hosting) for bedre vedlikeholdbarhet og mindre malstørrelse.
 
 
-* [ ] **Fase 5: Optimalisering av Maler & Ressurser**
-* [ ] Erstatte inlinede SVG-ikoner i HTML-malene med eksterne bildelenker (URL-ressurser fra sentralt CDN/hosting) for bedre vedlikeholdbarhet og mindre malstørrelse.
-
-
-* [ ] **Fase 6: Verifikasjon & Opprydding**
-* [ ] Kjøre alle xUnit-tester og verifisere at alt kjører grønt.
-* [ ] Teste lokal e-postmottak i Mailpit (`http://localhost:8025`).
+* [ ] **Sosiale Interaksjoner & Deling**
+* **Verve-e-post:** Invitasjon til plattformen fra eksisterende brukere.
+* **Delt konto / Familiekonto:** Invitasjon om å koble sammen kontoer for felles oppskriftshylle.
+* **Deling av oppskrifter:**
+* E-postnotifikasjon ved deling til en eksisterende bruker.
+* E-post med oppskrift og registreringstilbud ved deling til en ny/ikke-registrert mottaker.
