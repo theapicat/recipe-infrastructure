@@ -30,10 +30,16 @@ Detaljert dokumentasjon, domenemodeller og enhetstester for de enkelte tjenesten
 | [**`recipe-infrastructure`**](https://github.com/theapicat/recipe-infrastructure) | Docker Compose, Bash, Python | Sentral orkestrering av alle databaser, meldingsbuss, logging, Mailpit, felles skript og systemdokumentasjon. | **Internt Docker-nettverk** (`recipe-net`) |
 | [**`recipe-webapp`**](https://github.com/theapicat/recipe-webapp) | Next.js 16, TypeScript, React | Brukergrensesnitt for web. Rendring av sider, brukermoduler og sanntidsoppdateringer. | **Offentlig** (Port 3000) |
 | [**`recipe-gateway-api`**](https://github.com/theapicat/recipe-gateway-api) | .NET 10, YARP | Sentral inngangsdør (Web API Reverse Proxy). Håndterer CORS, YARP-routing, lokal JWT-validering og header-sanitering. | **Offentlig** (Port 5000) |
-| [**`recipe-authentication-api`**](https://github.com/theapicat/recipe-authentication-api) | .NET 10 Web API, OpenID / Identity, EF Core, PostgreSQL | Identitetsstyring. Brukerregistrering, innlogging, token-utstedelse og publisering av brukerhendelser. | **Internt / Lokal host** (Port 5001) |
+| [**`recipe-auth-api`**](https://github.com/theapicat/recipe-auth-api) | .NET 10 Web API, OpenID / Identity, EF Core, PostgreSQL | Identitetsstyring. Brukerregistrering, innlogging, token-utstedelse og publisering av brukerhendelser. | **Internt / Lokal host** (Port 5001) |
 | [**`recipe-core-api`**](https://github.com/theapicat/recipe-core-api) | .NET 10 Web API, Dapper, PostgreSQL, SignalR | Kjernedomenet. Forretningslogikk for oppskrifter, ingredienser, kategorier og SignalR sanntidshub. | **Internt / Lokal host** (Port 5002) |
 | [**`recipe-scraper-service`**](https://github.com/theapicat/recipe-scraper-service) | .NET 10, Playwright, MongoDB | Ekstern datainnhenting. Skraper og strukturerer oppskrifter fra eksterne nettsider asynkront via meldingskø. | **Internt Docker-nettverk** (`recipe-net`) |
 | [**`recipe-notification-service`**](https://github.com/theapicat/recipe-notification-service) | .NET 10, MassTransit, MailKit, Scriban | Asynkron e-postdistribusjon (velkomst, passord, admin-varsler, verifisering og GDPR-sletting). | **Internt Docker-nettverk** (`recipe-net`) |
+
+> **Merk:** `theapicat` er den kanoniske eier-kontoen for hele porteføljen (dit alle prosjektene
+> ble flyttet etter oppstart). `recipe-webapp` og `recipe-gateway-api` sin lokale `origin`-remote
+> peker fortsatt mot den opprinnelige private kontoen (`mrBellwood84`) de ble opprettet på, men
+> repoet finnes også under `theapicat` — lenkene over er derfor korrekte som de er. Se
+> [`todos/consistency-audit.md`](todos/consistency-audit.md) for detaljer.
 
 ---
 
@@ -68,7 +74,7 @@ Alle felles bakgrunnstjenester kjøres og orkestreres via `docker-compose.yaml` 
     HTTP REST (/api/auth)                   HTTP REST (/api/public, /user, /hubs)
            ▼                                             ▼
 +-------------------------------+             +---------------------------------+
-|  recipe-authentication-api    |             |        recipe-core-api          |
+|      recipe-auth-api          |             |        recipe-core-api          |
 |  (.NET 10 Web API - EF Core)  |             |   (.NET 10 Web API - Dapper)    |
 |    (Port 5001 - Auth API)     |             |  (Port 5002 - Core & SignalR)   |
 +-------------------------------+             +---------------------------------+
@@ -134,7 +140,7 @@ For smidig lokal utvikling i terminalen inneholder dette repositoriet hjelpeskri
 ### 6. Sikkerhet og Identitetsstyring
 
 * **Sentralisert Token-validering i Gateway**: Ingen uautentiserte forespørsler slipper gjennom til beskyttede endepunkter i bakenden.
-* **Isolering av Brukerdata**: `recipe-authentication-api` eier brukeridentiteter og tilganger. `recipe-core-api` forholder seg kun til verifiserte identitets-headers (`X-User-Id` og `X-User-Roles`), noe som sikrer at sensitive innloggingsdata aldri leker inn i kjerne-domenet.
+* **Isolering av Brukerdata**: `recipe-auth-api` eier brukeridentiteter og tilganger. `recipe-core-api` forholder seg kun til verifiserte identitets-headers (`X-User-Id` og `X-User-Roles`), noe som sikrer at sensitive innloggingsdata aldri leker inn i kjerne-domenet.
 * **Sikre Interne Nettverk**: Kun `recipe-gateway-api` og `recipe-webapp` eksponeres eksternt i produksjon. Databaser, meldingskøer og bakgrunnstjenester kommuniserer skjermet på Docker-nettverket (`recipe-net`).
 
 ---
@@ -156,13 +162,28 @@ docker compose down
 
 ### 8. Dokumentasjonshierarki
 
-Dypere teknisk dokumentasjon, teststrategier og fasedokumenter for enkeltkomponenter ligger organisert i egne undermapper under `documentation/`:
+`documentation/` er et speil av `Documentation/`-mappa (eller `Dokumentasjon/` for
+`recipe-gateway-api`) i hvert enkelt tjeneste-repo, samlet ett sted slik at hele
+systemet kan utforskes uten å klone alle syv repoene enkeltvis:
 
 ```text
 documentation/
-└── notification-service/
-    ├── notification-readme.md          # Domene- og arkitekturdokumentasjon
-    ├── notification-test-strategy.md   # xUnit & NSubstitute teststrategi
-    └── notification-design-system.md   # Sage/Terracotta HTML e-post designsystem
+├── auth-api/             # Speil av recipe-auth-api/Documentation/ (arkitektur, CQRS, events, OpenIddict, teststrategi)
+├── core-api/              # README (tjenesten har ennå ikke en egen Documentation/-mappe)
+├── gateway-api/           # Speil av recipe-gateway-api/Dokumentasjon/ (routing/kontrakt mot hver nedstrøms-tjeneste)
+├── notification-service/  # Speil av recipe-notification-service/Documentation/ (arkitektur, maler, feilhåndtering, teststrategi)
+├── scraper-service/       # README (tjenesten er ennå ikke påbegynt utover planlegging)
+├── webapp/                # Speil av recipe-webapp/documentation/ (routing, auth/sesjon, skjemaer/designsystem, kjent teknisk gjeld)
+└── legal/                 # Speil av recipe-webapp/public/docs/legal/ (personvern, cookies, vilkår, tilgjengelighet)
 
 ```
+
+> **Vedlikehold:** dette er kopier, ikke symlenker — de speiler ikke automatisk endringer i
+> kildetjenesten. Kjør en ny kopiering herfra når et tjeneste-repo får oppdatert dokumentasjon
+> (`cp <tjeneste>/Documentation/*.md recipe-infrastructure/documentation/<tjeneste>/`), ellers
+> går de gradvis ut av synk slik den forrige (nå erstattede) kopien av auth-api-dokumentasjonen
+> hadde gjort.
+
+Se også [`todos/consistency-audit.md`](todos/consistency-audit.md) for en gjennomgang av
+Dockerfiles, Serilog-oppsett og MassTransit-contracts på tvers av tjenestene, og funn som bør
+rettes i de respektive repoene (ikke gjort her — kun `recipe-infrastructure` er endret).

@@ -46,7 +46,7 @@ Kontrollerne i `recipe-auth-api` følger prinsippet om **tynne kontrollere** (Th
 
 **Rute-prefiks:** `/api/auth/admin`
 
-**Autorisasjon:** Krever at brukeren er autentisert via OpenIddict og har rollen `Admin` (`Roles = "Admin"`).
+**Autorisasjon:** Krever at brukeren er autentisert via OpenIddict og har rollen `admin` (`Roles = "admin"`). Rollenavn er alltid små bokstaver — se rollecasing-notatet i seksjon 4.
 
 **Formål:** Overvåking av brukermasse, manuell overstyring, tilgangssperring, administrative slettinger og styring av e-postsvartelisten.
 
@@ -85,6 +85,9 @@ Kontrollerne i `recipe-auth-api` følger prinsippet om **tynne kontrollere** (Th
 | --- | --- | --- | --- |
 | `POST` | `/token` | `password` | Førstegangs innlogging med e-post/brukernavn og passord. Validerer identitet og returnerer JWT Access Token og Refresh Token. |
 | `POST` | `/token` | `refresh_token` | Automatisk fornyelse av utløpt tilgangstoken uten at bruker må oppgi passord på nytt. |
+| `POST` | `/revoke` | — | Inndrar (RFC 7009) et refresh-token permanent, slik at det ikke lenger kan brukes til å fornye tilgang. Tar `token`, `token_type_hint=refresh_token` og `client_id` som `application/x-www-form-urlencoded`-felter. Håndteres helt av OpenIddict internt — ingen egen kontrollerlogikk finnes for dette endepunktet. Ugyldiggjør **ikke** et allerede utstedt access-token før det utløper naturlig (opptil 60 minutter), siden access-tokens er selvstendige JWT-er validert lokalt, ikke reference-tokens slått opp mot databasen ved hver forespørsel. Kalles best-effort fra frontendens utloggingsflyt. |
+
+> **Rollecasing:** Rollenavn (`role`-claimet i JWT-en, `role`-feltet i `/account/me`-responsen, og `role`-query-parameteren i Google-callback-redirecten) er alltid små bokstaver (`"admin"` / `"user"`), både i databasen og i alt som sendes ut. Dette er den ene sannhetskilden — ingen normalisering skal være nødvendig i forbrukende tjenester.
 
 ---
 
