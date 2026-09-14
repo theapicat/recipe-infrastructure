@@ -1,45 +1,116 @@
 #!/usr/bin/env bash
+# Stopper mikrotjenester startet av start-project.sh, sporet via dev-scripts/.run/*.pid.
+set -uo pipefail
 
-# Sørg for at skriptet har kjørerettigheter
-chmod +x "$0" 2>/dev/null
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./lib.sh
+source "$SCRIPT_DIR/lib.sh"
 
-# Farger for konsollutskrift
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-NC='\033[0m'
+usage() {
+    cat <<EOF
+Bruk: $(basename "$0") [tjeneste ...] [--with-infra]
 
-echo -e "${CYAN}====================================================${NC}"
-echo -e "${CYAN}   🛑 Stopper Recipe Applikasjoner                 ${NC}"
-echo -e "${CYAN}====================================================${NC}\n"
+Uten argumenter stoppes alle sporede mikrotjenester (Docker-infrastrukturen lar vi stå).
+Du kan oppgi én eller flere tjenester for å stoppe et delsett:
+  $(basename "$0") auth-api notification-service
 
-echo -e "🧹 Stopper applikasjoner og lukker terminaler..."
+Gyldige tjenester: ${SERVICE_ORDER[*]}
 
-# 1. Stopper dotnet watch og node/next-prosesser
-pkill -f "dotnet watch" 2>/dev/null
-pkill -f "next-dev" 2>/dev/null
-pkill -f "recipe-webapp" 2>/dev/null
+Flagg:
+  --with-infra  Kjør også "docker compose down" etter at tjenestene er stoppet
+  -h, --help    Vis denne hjelpeteksten
+EOF
+}
 
-# 2. Tvinger frigjøring av porter dersom en prosess henger (5000, 5001, 5002, 3000)
+STOP_INFRA=false
+SELECTED=()
+
+for arg in "$@"; do
+    case "$arg" in
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --with-infra)
+            STOP_INFRA=true
+            ;;
+        *)
+            if contains "$arg" "${SERVICE_ORDER[@]}"; then
+                SELECTED+=("$arg")
+            else
+                log_error "Ukjent tjeneste: $arg"
+                usage
+                exit 1
+            fi
+            ;;
+    esac
+done
+[ ${#SELECTED[@]} -eq 0 ] && SELECTED=("${SERVICE_ORDER[@]}")
+
+log_info "===================================================="
+log_info "   🛑 Stopper Recipe Applikasjoner"
+log_info "===================================================="
+echo
+
+HAVE_WMCTRL=false
+command -v wmctrl &>/dev/null && HAVE_WMCTRL=true
+
+stopped_any=false
+for svc in "${SELECTED[@]}"; do
+    pidfile=$(pidfile_for "$svc")
+    title="${SERVICE_TITLE[$svc]}"
+
+    [ -f "$pidfile" ] || continue
+    pid=$(cat "$pidfile")
+
+    if kill -0 "$pid" 2>/dev/null; then
+        # Send til hele prosessgruppen (negativ PID) - se merknad i lib.sh sin
+        # write_runner_script() om "set -m". Fanger opp underprosesser
+        # "dotnet watch" o.l. selv spawner.
+        kill -TERM -- "-$pid" 2>/dev/null
+
+        # .NET-tjenester med Quartz/MassTransit kan bruke noen sekunder på
+        # graceful shutdown (observert i praksis) - gi dem rom før SIGKILL.
+        for _ in {1..20}; do
+            kill -0 "$pid" 2>/dev/null || break
+            sleep 0.3
+        done
+
+        if kill -0 "$pid" 2>/dev/null; then
+            kill -KILL -- "-$pid" 2>/dev/null
+        fi
+
+        echo -e "   ${GREEN}✔${NC} $title stoppet"
+        stopped_any=true
+    fi
+
+    rm -f "$pidfile"
+    [ "$HAVE_WMCTRL" = true ] && wmctrl -c "$title" 2>/dev/null
+done
+
+if [ "$stopped_any" = false ]; then
+    log_warn "   Ingen sporede prosesser å stoppe (glemt å kjøre start-project.sh, eller allerede stoppet?)"
+fi
+
+# Sikkerhetsnett: frigjør HTTP-portene i tilfelle noe kjører utenfor PID-sporingen
+# (f.eks. startet manuelt med "dotnet watch" i en egen terminal).
 PORTS=(5000 5001 5002 3000)
 for port in "${PORTS[@]}"; do
     pid=$(lsof -t -i :"$port" 2>/dev/null)
     if [ -n "$pid" ]; then
         kill -9 $pid 2>/dev/null
+        log_warn "   Frigjorde port $port (usporet prosess, PID $pid)"
     fi
 done
 
-# 3. Lukker de åpne terminalvinduene basert på tittelen
-pkill -f "Auth API \(5001\)" 2>/dev/null
-pkill -f "Core API \(5002\)" 2>/dev/null
-pkill -f "Scraper Service" 2>/dev/null
-pkill -f "Notification Service" 2>/dev/null
-pkill -f "Gateway API \(5000\)" 2>/dev/null
-pkill -f "Web App \(3000\)" 2>/dev/null
+[ "$HAVE_WMCTRL" = false ] && log_warn "   (Installer 'wmctrl' for automatisk lukking av terminalvinduer.)"
 
-echo -e "   ${GREEN}✔ Alle 6 mikrotjenester er stoppet og terminalene er lukket!${NC}"
+if [ "$STOP_INFRA" = true ]; then
+    echo -e "\n🐳 Stopper infrastruktur (docker compose down)..."
+    (cd "$INFRA_DIR" && docker compose down)
+fi
 
-echo -e "\n${CYAN}====================================================${NC}"
-echo -e "${GREEN}✨ Ryddet og klart!${NC}"
-echo -e "${CYAN}====================================================${NC}"
+echo
+log_info "===================================================="
+log_ok "✨ Ryddet og klart!"
+log_info "===================================================="

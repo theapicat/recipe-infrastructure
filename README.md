@@ -129,9 +129,12 @@ For smidig lokal utvikling i terminalen inneholder dette repositoriet hjelpeskri
 * **`start-project.sh`**: Starter hele infrastrukturen i Docker Compose, alle .NET 10-bakendetjenestene og Next.js-webappen i separate terminaløkter for lokal utvikling.
 * **`stop-project.sh`**: Stopper alle kjørende prosesser og rydder opp lokale porter.
 * **`health-test.sh`**: Utfører en hurtigsjekk av alle definerte helseendepunkter og porter i utviklingsmiljøet.
-* **`count_loc.py`**: Statistikkverktøy skrevet i Python. Teller *Lines of Code* (LOC) på tvers av hele prosjektporteføljen (ekskludert auto-genererte filer som `bin`, `obj`, `.next`, `node_modules`).
-* Skriver ut en oppsummering direkte i terminalen.
-* Genererer/oppdaterer en datostemplet Markdown-fil under `progress-log/YYYY-MM-DD_LOC.md` som en kontinuerlig historikk og benchmark på utviklingstempo.
+* **`count_loc.py`**: Statistikkverktøy skrevet i Python. Teller *Lines of Code* (LOC) på tvers av hele prosjektporteføljen (ekskludert auto-genererte filer som `bin`, `obj`, `.next`, `node_modules`, samt dokumentasjonsspeilingen i `documentation/` for å unngå dobbeltelling).
+* Skriver ut en oppsummering med sparklines (Unicode-grafer) direkte i terminalen, inkludert commit-aktivitet hentet fra `git log` på tvers av alle tjeneste-repoene.
+* Genererer en tidsstemplet Markdown-rapport per kjøring under `progress-log/YYYY-MM-DD_HH-MM-SS_LOC.md`, med Mermaid-diagrammer (linjediagram over utvikling, kakediagram over språkfordeling) som GitHub rendrer direkte.
+* All historikk lagres i `progress-log/history.jsonl` (én linje per måling) - selve datagrunnlaget for trendene.
+* `progress-log/dashboard.md` er alltid identisk med siste måling, med en stabil URL å lenke til.
+* Flagg: `--no-report` (kun terminalutskrift, ingen filer skrives) og `--service <navn>` (dypdykk i én enkelt tjeneste).
 
 
 
