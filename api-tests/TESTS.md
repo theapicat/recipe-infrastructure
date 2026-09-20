@@ -1,9 +1,9 @@
 # Hva testene gjør (lesebok)
 
 Denne filen forklarer hva hver eneste test i `api-tests/` gjør, hva den forventer og hvorfor. Den er ment å leses fra
-topp til bunn. Oppsett, kjøring og sikkerhet står i [`README.md`](README.md). Sist gjennomgått mot koden 2026-09-20. Testene dekker bare endepunkter som finnes og skal virke; kjente feil og planlagte funksjoner testes ikke.
+topp til bunn. Oppsett, kjøring og sikkerhet står i [`README.md`](README.md). Sist gjennomgått mot koden 2026-09-20 (Core-dokumentasjonen `08-api-reference.md`, 71 endepunkter). Testene dekker bare endepunkter som finnes og skal virke; kjente feil og planlagte funksjoner testes ikke.
 
-**Tall:** 59 testfunksjoner blir til **293 testtilfeller**, fordi mange kjøres én gang per endepunkt, katalog eller rolle
+**Tall:** 160 testfunksjoner blir til **524 testtilfeller**, fordi mange kjøres én gang per endepunkt, katalog eller rolle
 («parametrisering»). Tabellene under viser funksjonene, og antall tilfeller står i overskriften.
 
 | Fil | Funksjoner | Tilfeller |
@@ -15,7 +15,12 @@ topp til bunn. Oppsett, kjøring og sikkerhet står i [`README.md`](README.md). 
 | `test_auth_admin.py` | 13 | 39 |
 | `test_core_public.py` | 2 | 3 |
 | `test_core_catalog_access.py` | 1 | 162 |
-| `test_core_catalog_crud.py` | 5 | 36 |
+| `test_core_catalog_crud.py` | 11 | 68 |
+| `test_core_nutrients.py` | 8 | 14 |
+| `test_core_ingredients.py` | 26 | 40 |
+| `test_core_unconfirmed_ingredients.py` | 28 | 53 |
+| `test_core_recipes.py` | 21 | 80 |
+| `test_core_recipe_nutrition.py` | 12 | 12 |
 
 ---
 
@@ -33,8 +38,8 @@ kontrakten: URL, metode, statuskode og JSON. Derfor kan de brukes mot et hvilket
 | `user` | en vanlig bruker testene selv registrerer | `/api/user/**` og egne kontoendepunkter |
 | `admin` | den seedede administratoren (`admin@kjoekkenhylla.local`) | alt, inkludert `/api/admin/**` og `/api/auth/admin/*` |
 
-**Statuskodene testene forventer.** `200` OK, `204` OK uten kropp (sletting), `302` redirect, `400` ugyldig forespørsel,
-`401` ikke innlogget (mangler eller ugyldig token), `403` innlogget, men feil rolle, `404` finnes ikke, `405` metoden finnes
+**Statuskodene testene forventer.** `200` OK, `201` opprettet (med `Location`), `204` OK uten kropp (sletting), `302` redirect, `400` ugyldig forespørsel,
+`401` ikke innlogget (mangler eller ugyldig token), `403` innlogget, men feil rolle, `404` finnes ikke (også en annen brukers ressurs), `409` konflikt (navnet finnes, raden er i bruk, ugyldig referanse, feil status), `405` metoden finnes
 ikke på ruten. `5xx` er alltid en feil hos tjenesten.
 
 **DTO-er (modeller) er strenge.** Når en test sier «svaret valideres mot `UserProfile`», betyr det at hvert felt i JSON
@@ -58,11 +63,14 @@ typer hoppes over med mindre `API_TEST_ENV` er `local` (standard) eller `test`. 
 
 1. **Forhåndssjekk** (`stack`): gateway, Auth og Core må svare på helsesjekkene. Ellers avbrytes alt med en tydelig melding.
 2. **Miljøvern:** i `local` må alle URL-er være localhost.
-3. **Opprydding ved start:** rester med `apitest-` fra en tidligere avbrutt kjøring slettes, og det står i sluttrapporten.
+3. **Opprydding ved start:** rester med `apitest-` fra en tidligere avbrutt kjøring slettes, og det står i sluttrapporten. Det
+   gjelder også oppskrifter og ubekreftede ingredienser som tilhører gjenværende testbrukere (Core rydder ikke når en konto
+   slettes, så sweepen logger inn som testbrukeren med det kjente testpassordet og sletter dem først).
 4. **Innlogging som admin** (én gang, gjenbrukes av alle tester).
 5. **Testene kjører.** Brukere opprettes ved behov (registrering, admin-bekreftelse, innlogging).
-6. **Opprydding til slutt:** registrerte slettinger kjøres bakover (barn før foreldre), så kontrolleres det at ingenting
-   med `apitest-` er igjen. Rester feies bort, og kjøringen feiler med en tydelig melding.
+6. **Opprydding til slutt:** registrerte slettinger kjøres bakover (barn før foreldre). Slettinger som feiler prøves på nytt i
+   opptil tre runder, for eksempel en ingrediens som ble brukt av en oppskrift som ryddes senere. Så kontrolleres det at
+   ingenting med `apitest-` er igjen. Rester feies bort, og kjøringen feiler med en tydelig melding.
 7. **E-postsjekklisten skrives** til `reports/`.
 
 Hjelpefunksjoner testene bruker, definert i `conftest.py`:
@@ -76,7 +84,14 @@ Hjelpefunksjoner testene bruker, definert i `conftest.py`:
 | `checklist` | e-postsjekklisten |
 | `core_ready` | hopper over Core-tester hvis Core avviser tokenet (unngår hundrevis av følgefeil; selve feilen rapporteres av en egen test) |
 | `core_admin_ready` | hopper over Core-skrivetester hvis admin blokkeres på `/api/admin/**` |
-| `create_row` | oppretter en katalograd i Core og registrerer den for sletting |
+| `create_row` | oppretter en katalograd i Core (201, server-tildelt id) og registrerer den for sletting |
+| `alice`, `bob` | to vanlige brukere for tester der én brukers data ikke skal være synlig for en annen |
+| `fresh_user("navn")` | en ny bruker helt uten data (for «en bruker uten oppskrifter får en tom liste») |
+| `ref` | seedede referanser (enheter `g`, `stk`, `dl`, `ss` …, kategorier, næringsstoffer, én ekte ingrediens) som fremmednøkler |
+| `make_ingredient` | oppretter en offisiell ingrediens som admin (100 kcal, to næringsstoffer, 1 stk = 50 g), sletter den etterpå |
+| `make_unconfirmed(bruker)` | oppretter en ubekreftet ingrediens, og sletter den når testen er ferdig (grensene er per bruker) |
+| `make_recipe(bruker)` | oppretter en oppskrift, og sletter den når testen er ferdig |
+| `approve(rad)` | godkjenner en ventende ubekreftet ingrediens som admin (ny offisiell ingrediens) og rydder den |
 
 ---
 
@@ -200,7 +215,7 @@ ingenting ved det, og kontaktskjema-koden er ikke rørt.
 
 ---
 
-## 9. Katalogene i Core (198 tilfeller)
+## 9. Katalogene i Core (230 tilfeller)
 
 Core har seks kataloger som admin styrer: `units`, `unit-types`, `allergens`, `ingredient-categories`, `search-keywords`,
 `recipe-categories`. Hver har lese-ruter under `/api/user/…` (alle innloggede) og full CRUD under `/api/admin/…` (kun admin).
@@ -225,25 +240,226 @@ tilfellene er enten lesing, eller skriving som skal nektes. Forventet statuskode
 Å skrive på brukerrutene skal aldri gå, heller ikke for admin (metoden finnes ikke, derfor 405). Rett mot Core svarer anonym
 405 i stedet for 401 (rutingen avviser ukjent metode før innloggingen sjekkes), og begge godtas siden begge betyr «nektet».
 
-### 9.2 `test_core_catalog_crud.py`: livssyklus og feilhåndtering (36 tilfeller) 🔒
+### 9.2 `test_core_catalog_crud.py`: livssyklus, serverregler og feilhåndtering (68 tilfeller) 🔒
 
-Testene lager egne rader (`apitest-…`) via admin-ruten, og sletter dem igjen selv om testen feiler. Rader som peker på andre
-(`units` peker på `unit-types`) får en ny forelder opprettet først, og slettes før forelderen.
+Serveren tildeler alltid id-en (en `id` fra klienten ignoreres), og gjør navn om til små bokstaver. Testene lager egne rader
+(`apitest-…`) via admin-ruten, og sletter dem igjen selv om testen feiler. Rader som peker på andre (`units` peker på
+`unit-types`) får en ny forelder opprettet først, og slettes før forelderen. Enhetsforkortelsen er også unik og utledes derfor av navnet.
 
 | Test | Hva den gjør | Forventer |
 | --- | --- | --- |
-| `test_full_lifecycle` (×6, én per katalog) | 1) oppretter en rad. 2) leser den på admin- **og** brukerruten. 3) ser den i begge listene. 4) endrer den med `PUT`. 5) leser den igjen (også fra brukerlisten). 6) sletter den. 7) sjekker at den er borte overalt. 8) sletter en gang til | opprett 200; lesing gir raden **identisk** med det som ble sendt, validert mot DTO; listene viser endringene umiddelbart (cachen ugyldiggjøres); sletting 204; deretter 404; sletting av en rad som ikke finnes gir også 204 (idempotent) |
-| `test_every_existing_row_matches_the_dto` (×12: 6 kataloger × brukerrute og adminrute) | leser hele katalogen | 200, og **hver** eksisterende rad matcher DTO-en strengt (ingen rader er da nødvendig; listen kan være tom) |
-| `test_create_without_required_fields_is_rejected` (×6) | `POST` med bare en `id` | 400 `ProblemDetails` med feil |
-| `test_malformed_id_is_not_found` (×6) | `GET /…/ikke-en-guid` | 404 |
+| `test_full_lifecycle` (×6, én per katalog) | 1) oppretter en rad. 2) leser den på admin- **og** brukerruten. 3) ser den i begge listene. 4) endrer den med `PUT` (hele raden, `id` i body). 5) leser den igjen (også fra brukerlisten). 6) sletter den. 7) sjekker at den er borte overalt. 8) sletter en gang til | opprett **201** med `Location` og raden; lesing gir raden **identisk**, validert mot DTO; `PUT` gir **200 uten kropp**; listene viser endringene umiddelbart (cachen ugyldiggjøres); sletting 204; deretter 404; sletting av en rad som ikke finnes gir også 204 (idempotent) |
+| `test_every_existing_row_matches_the_dto` (×12: 6 kataloger × brukerrute og adminrute) | leser hele katalogen | 200, og **hver** eksisterende rad matcher DTO-en strengt |
+| `test_server_assigns_the_id_and_normalizes_the_name` (×6) | oppretter med en egen `id` og navnet `  APITEST-…-STOR   BOKSTAV  ` | raden får en annen id, og navnet er trimmet, med ett mellomrom og små bokstaver |
+| `test_unit_abbreviation_keeps_its_case` | oppretter en enhet med forkortelsen `AtU-X` | forkortelsen beholder store/små bokstaver (symboler som `µg`, `mg-ATE`) |
+| `test_an_existing_name_is_a_conflict` (×6) | oppretter samme navn en gang til (med store bokstaver) | 409 `ProblemDetails` |
+| `test_a_catalog_row_in_use_cannot_be_deleted` | sletter en enhetstype som en enhet peker på, deretter enheten og enhetstypen | 409, så 204 og 204 |
+| `test_create_without_required_fields_is_rejected` (×6) | `POST` med `{}` | 400 `ProblemDetails` med feil |
+| `test_create_with_a_blank_name_is_rejected` (×6) | `POST` med navnet `"   "` | 400 |
+| `test_update_requires_an_id` (×6) | `PUT` uten `id` | 400 |
+| `test_malformed_id_is_a_bad_request` (×12: 6 × brukerrute og adminrute) | `GET /…/ikke-en-guid` | **400** (de generiske katalogkontrollerne; de håndskrevne svarer 404) |
 | `test_unknown_id_is_404_and_delete_is_idempotent` (×6) | `GET` og `DELETE` av en ID som ikke finnes | 404, og 204 |
+
+## 10. `test_core_nutrients.py`: næringsstoffer (14 tilfeller) 🔒
+
+`/api/user/nutrient-definitions` er en statisk, skrivebeskyttet katalog fra Matvaretabellen, med tekstkode som id (`Fett`, `Vit C`).
+Det finnes ingen admin-rute for den, så admin leser via brukerruten.
+
+| Test | Hva den gjør | Forventer |
+| --- | --- | --- |
+| `test_nutrients_require_a_signed_in_user` | liste og `GET /Fett` uten innlogging | 401 |
+| `test_every_signed_in_role_can_list_the_nutrients` (×2: user, admin) | `GET` listen | 200, alle rader validert strengt mot `NutrientDefinition` (med nøstet gruppe og enhet) |
+| `test_the_list_is_sorted_by_sort_order` | leser listen | `sortOrder` er 1, 2, 3 … uten hull, og id-ene er unike |
+| `test_groups_are_nested_at_most_one_level` | sjekker `group.parentGroup` på alle stoffer | hovedgrupper har ingen forelder, undergrupper peker på en hovedgruppe (aldri dypere) |
+| `test_unit_is_consistent_with_the_units_catalog` | sammenligner `unitId`/`unit`/`unitTypeId` på hvert stoff med `/api/user/units` | forkortelse og enhetstype stemmer med enheten stoffet peker på |
+| `test_every_nutrient_can_be_read_by_its_url_encoded_id` | henter hvert stoff på URL-enkodet id (mellomrom, `+`, `:`) | 200 og lik listeraden, for alle stoffer |
+| `test_unknown_nutrient_is_404` | `GET /finnes-ikke` | 404 |
+| `test_the_catalog_is_read_only` (×6: `POST`/`PUT`/`DELETE` × user/admin) | forsøker å skrive | 405 (metoden finnes ikke) |
 
 ---
 
-## 10. Slik leser du et resultat
+## 11. `test_core_ingredients.py`: ingredienser (40 tilfeller) 🔒
+
+Alle innloggede søker og leser, kun admin skriver. Søket filtrerer en cachet lettvektsliste (`IngredientListItem`), mens
+`GET /{id}` gir hele ingrediensen (`Ingredient`, med næringsverdier og porsjoner) ferskt fra databasen. Testene lager egne
+ingredienser (`apitest-…`) og sletter dem etterpå.
+
+**Tilgang:**
+
+| Test | Hva den gjør | Forventer |
+| --- | --- | --- |
+| `test_reading_requires_a_signed_in_user_and_admin_routes_require_admin` | lesing anonymt, og adminrutene som vanlig bruker | 401 og 403 |
+| `test_writing_is_admin_only` (×3: `POST`, `PUT`, `DELETE`) | skriving som anonym og som vanlig bruker | 401 og 403 |
+| `test_user_routes_have_no_write_methods` | `POST` og `DELETE` på `/api/user/ingredients`, som bruker og admin | 405 |
+
+**Lesing og søk:**
+
+| Test | Hva den gjør | Forventer |
+| --- | --- | --- |
+| `test_the_whole_list_matches_the_dto_for_users_and_admin` | henter hele lista som bruker og som admin | over 1 000 rader, alle matcher DTO-en, og begge ser de samme ingrediensene |
+| `test_a_sample_of_full_ingredients_matches_the_dto` | henter 25 jevnt fordelte ingredienser i full form | 200, `Ingredient` strengt, og id/navn/kcal stemmer med listeraden |
+| `test_unknown_or_malformed_ingredient_id_is_404` | ukjent id og `ikke-en-guid`, på bruker- og adminrute | 404 |
+| `test_search_by_name_is_partial_and_case_insensitive` | søker på hele navnet, navnet med store bokstaver, navnet uten siste tegn og et navn som ikke finnes | riktig rad i de tre første, tom liste i den siste |
+| `test_search_by_name_also_matches_search_keywords` | lager et søkeord og en ingrediens som bruker det, søker på ordet | ingrediensen kommer med, både på `name=` og `searchKeywordId=` |
+| `test_search_filters_by_category_and_keyword` | filtrerer på `categoryId` og `searchKeywordId` | alle rader har kategorien/søkeordet, og ingrediensen mangler i en annen kategori |
+| `test_allergen_filters_include_and_exclude` | `allergenId`, `excludeAllergenId` (også gjentatt) og begge samtidig | bare ingredienser med/uten allergenet; begge samtidig gir tom liste |
+| `test_filters_are_combined_with_and` | navn + riktig kategori, og navn + feil kategori | én rad, og tom liste |
+
+**Admin: opprette, endre, slette:**
+
+| Test | Hva den gjør | Forventer |
+| --- | --- | --- |
+| `test_create_returns_the_full_ingredient_with_server_assigned_ids` | oppretter en ingrediens med to næringsverdier og en porsjon | 201, alle verdier som sendt, navnet i små bokstaver, egne id-er på alle barn, lik ved `GET` på admin- og brukerrute, og med i søkelista (cache ugyldiggjort) |
+| `test_create_gives_201_with_a_location_header` | leser `Location` | peker på den nye ingrediensen |
+| `test_names_are_normalized_and_unique` | navn med store bokstaver og flere mellomrom; så samme navn med andre bokstaver | normalisert; 409 for duplikatet |
+| `test_create_can_make_a_variant_of_another_ingredient` | oppretter en variant med `variantOfIngredientId` | variantens basis vises på raden og i søkelista |
+| `test_invalid_content_is_rejected_with_400` (×4) | tomt navn, negativ kcal, negativ næringsverdi, porsjon med 0 gram | 400 |
+| `test_references_to_things_that_do_not_exist_give_409` (×6) | ukjent kategori, standardenhet, enhetstype, næringsstoff og basisingrediens, og duplisert næringsstoff | 409 (databasens fremmednøkler/unikhet) |
+| `test_required_fields_are_enforced` (×5) | utelater `name`, `categoryId`, `primaryUnitTypeId`, `defaultUnitId`, `energyKcal` | 400 `ProblemDetails` med feil |
+| `test_update_replaces_the_ingredient_and_all_children` | `PUT` med nytt navn, ny kcal, ett annet næringsstoff og to porsjoner | 200 og hele ingrediensen; barna er byttet ut med **nye** id-er; søkelista viser nye verdier |
+| `test_update_validates_like_create` | `PUT` med tomt navn og med ukjent kategori | 400 og 409 |
+| `test_update_of_an_unknown_ingredient_is_404` | `PUT` på ukjent id | 404 |
+| `test_delete_removes_the_ingredient_everywhere` | sletter | 204; borte på begge rutene og i søkelista; ny sletting gir 404 |
+| `test_delete_of_an_unknown_ingredient_is_404` | `DELETE` på ukjent id | 404 (ikke idempotent, i motsetning til katalogene) |
+| `test_an_ingredient_used_by_a_recipe_cannot_be_deleted` | sletter en ingrediens en oppskrift bruker | 409; går først når oppskriften er slettet |
+| `test_a_base_ingredient_with_a_variant_cannot_be_deleted` | sletter basisen før varianten | 409, så går det når varianten er borte |
+| `test_an_ingredient_used_by_an_unconfirmed_ingredient_cannot_be_deleted` | sletter en ingrediens en sammenslått ubekreftet rad peker på | 409; går først når raden er slettet |
+
+---
+
+## 12. `test_core_unconfirmed_ingredients.py`: ubekreftede ingredienser (53 tilfeller) 🔒
+
+En bruker som ikke finner en ingrediens lager en **privat** rad og kan be admin ta den inn (`NotRequested → Pending → Approved | Merged | Rejected`).
+Testene bruker `alice` og `bob`; grensen på 10 ventende testes med en egen fersk bruker.
+
+**Tilgang:**
+
+| Test | Hva den gjør | Forventer |
+| --- | --- | --- |
+| `test_anonymous_is_rejected` (×11) | alle seks brukerendepunktene og alle fem adminendepunktene uten innlogging | 401 |
+| `test_the_review_queue_is_admin_only` (×5) | de fem adminendepunktene som vanlig bruker | 403 |
+
+**Brukerens egne rader:**
+
+| Test | Hva den gjør | Forventer |
+| --- | --- | --- |
+| `test_create_read_rename_and_delete` | oppretter, leser, gir nytt navn (med store bokstaver), sletter, og sletter en gang til | 201 med `NotRequested`, `createdByUserId` = meg, tomme avgjørelsesfelt og `createdAt` ≈ nå; `PUT` gir 200 med normalisert navn; 204; deretter 404 |
+| `test_create_gives_201_with_a_location_and_a_normalized_name` | navn med store bokstaver og mellomrom rundt | `Location` peker på raden, navnet er trimmet og i små bokstaver |
+| `test_the_list_is_newest_first` | oppretter to rader | nyeste først |
+| `test_request_review_moves_a_row_to_pending_and_locks_it` | ber om vurdering, prøver igjen, gir nytt navn, sletter | 200 `Pending`; 409; 409 (bare `NotRequested` kan endres); 204 (eieren kan slette uansett status) |
+| `test_request_review_can_be_given_at_creation` | `requestReview: true` | rett til `Pending` |
+| `test_unknown_id_is_404` (×8: 4 kall × ukjent/ugyldig id) | `GET`, `PUT`, `request-review`, `DELETE` | 404 (også for `ikke-en-guid`) |
+| `test_a_name_must_be_1_to_200_characters` (×3) | tomt navn, bare mellomrom, 201 tegn | 400 |
+| `test_a_name_of_exactly_200_characters_is_accepted` | 200 tegn | 201 |
+| `test_the_name_field_is_required` | `{}` | 400 `ProblemDetails` med feil |
+| `test_rename_validates_the_name` | nytt navn tomt og for langt | 400 |
+| `test_a_name_that_exists_as_an_official_ingredient_is_a_conflict` | navn som en seedet ingrediens (også med store bokstaver), og endring til det navnet | 409 |
+| `test_a_user_cannot_have_the_same_name_twice_but_others_can` | samme navn to ganger hos Alice, og samme navn hos Bob | 409; 201 (radene er private per bruker) |
+| `test_at_most_10_requests_can_be_pending_at_once` | en ny bruker får 10 ventende, prøver en 11. og ber om vurdering for en 12. | 409 begge steder |
+
+**Isolasjon:**
+
+| Test | Hva den gjør | Forventer |
+| --- | --- | --- |
+| `test_a_user_only_sees_their_own_rows` | Bob og admin (brukerruten) leser Alice sin rad | ikke i listene; `GET`, `PUT`, `request-review`, `DELETE` som Bob gir 404; Alice sin rad er uendret |
+| `test_a_new_user_starts_with_an_empty_list` | ny bruker henter listen | `[]` |
+
+**Admin: køen og avgjørelsene:**
+
+| Test | Hva den gjør | Forventer |
+| --- | --- | --- |
+| `test_the_queue_shows_pending_rows_oldest_first` | to ventende (Alice og Bob) og en som ikke er bedt om | begge ventende i køen, eldste først, ikke den tredje |
+| `test_the_queue_can_show_all_rows_or_one_status` | `?all=true`, og `?status=Rejected` etter et avslag | alle statuser; bare avslåtte |
+| `test_admin_can_read_any_users_row_by_id` | admin henter Alice sin rad, og en ukjent id | 200 lik raden; 404 |
+| `test_approve_creates_the_official_ingredient` | godkjenner med en `IngredientRequest` | 200 og ny ingrediens; raden er `Approved` med `resolvedIngredientId` og `reviewedAt`; ingrediensen er lesbar og søkbar for alle; raden er ute av køen |
+| `test_approve_can_make_the_ingredient_a_variant` | godkjenner med `variantOfIngredientId` | ingrediensen er en variant av basisen |
+| `test_merge_links_to_an_existing_ingredient` | `merge` mot en eksisterende ingrediens | 200, `Merged` og `resolvedIngredientId` |
+| `test_reject_is_final_and_stays_private` | avslår med begrunnelse, prøver alle andre avgjørelser, ber om ny vurdering, endrer navn og sletter | `Rejected` med begrunnelse; 409 på alt videre; eieren kan slette |
+| `test_reject_reason_is_optional` | avslår uten begrunnelse | `Rejected`, `rejectionReason = null` |
+| `test_only_pending_rows_can_be_decided` | avgjør en rad som ikke er bedt om, og en som allerede er sammenslått | 409 på `approve`, `merge` og `reject`; brukeren kan ikke endre eller be om ny vurdering |
+| `test_invalid_decisions_are_rejected_and_leave_the_row_pending` | `approve` med tomt navn og ukjent kategori, `merge` mot ukjent ingrediens | 400, 409 og 400; raden er fortsatt `Pending` |
+| `test_deciding_an_unknown_row_is_404` (×3) | `approve`, `merge`, `reject` på ukjent id | 404 |
+
+---
+
+## 13. `test_core_recipes.py`: oppskrifter (80 tilfeller) 🔒
+
+Oppskrifter er strengt brukereide. Eieren kommer alltid fra tokenet, og en annen brukers oppskrift gir **samme 404** som en id
+som ikke finnes. Admin har ingen tilgang til andres oppskrifter. Bare selve oppskriften er en ressurs (steg, linjer og kilde følger med).
+
+**Hver bruker får bare sine egne:**
+
+| Test | Hva den gjør | Forventer |
+| --- | --- | --- |
+| `test_anonymous_is_rejected` (×7) | alle syv oppskriftsendepunktene uten innlogging | 401 |
+| `test_a_user_with_no_recipes_gets_an_empty_list` | en helt ny bruker henter `GET /recipes` | 200 og `[]` |
+| `test_a_user_with_ten_recipes_gets_exactly_those_ten_and_others_get_none` | Carol lager 10 oppskrifter; Carol, Dave (ny) og Bob henter listene sine | Carol får akkurat de ti, sortert på tittel; Dave får `[]`; Bob ser ingen av dem |
+| `test_each_user_only_sees_their_own_recipes` | Alice og Bob lager hver sin; begge og admin henter listen | hver ser bare sin egen, og admin ser ingen av dem |
+| `test_someone_elses_recipe_does_not_exist` (×10: 5 operasjoner × Bob/admin) | Bob og admin prøver `GET`, `PUT`, `DELETE`, `favorite` og `nutrition` på Alice sin oppskrift | 404, og svaret er **identisk** (statuskode og kropp uten `traceId`) med svaret for en id som ikke finnes; Alice sin oppskrift er uendret |
+| `test_identity_comes_only_from_the_token` | Alice sender `ownerUserId` = Bob og en egen `id` i kroppen, både ved opprettelse og `PUT` | eieren er Alice, id-en er servertildelt, og Bob ser ikke oppskriften |
+
+**Livssyklus:**
+
+| Test | Hva den gjør | Forventer |
+| --- | --- | --- |
+| `test_create_returns_the_whole_recipe` | oppretter med tre steg (to med timer), tre linjer (én med notat, én uten mengde), kilde og bilde | 201 med `Location`; tittelen i små bokstaver; `cookTimeMinutes` = summen av timerne (25); steg nummerert 1–3; linjer i rekkefølge, utelatt mengde blir 0; kilden er `Manual` med bare `reference`; egne id-er på alt; `createdAt = updatedAt`; `GET` gir det samme |
+| `test_read_update_favorite_and_delete` | lista og `GET`; favoritt på; `PUT` med alt nytt; favoritt av; sletting; sletting igjen | listeraden stemmer; favoritt gir 204 uten kropp og vises i `GET` og liste; `PUT` gir 200 og erstatter alt, med **nye id-er** på steg og linjer, mens id, eier, favoritt og `createdAt` beholdes og `updatedAt` øker; 204; deretter 404 i `GET` og lista; ny sletting gir 404 |
+| `test_the_list_is_sorted_by_title` | tre oppskrifter i tilfeldig rekkefølge | sortert på tittel |
+| `test_unknown_or_malformed_id_is_404` (×10) | `GET`, `PUT`, `DELETE`, `favorite`, `nutrition` med ukjent id og `ikke-en-guid` | 404 |
+| `test_the_source_is_manual_and_only_the_reference_can_be_set` | sender `type: Scraped`, `url` og `isEditedFromSource` sammen med en `reference` | `Manual`, bare `reference` beholdt, `url` og `isEditedFromSource` er `null` |
+| `test_recipe_lines_can_be_to_taste` | linjer med utelatt mengde, `0` og `1.5` | lagres som 0, 0 og 1.5, i rekkefølge |
+
+**Validering:**
+
+| Test | Hva den gjør | Forventer |
+| --- | --- | --- |
+| `test_invalid_content_is_rejected_with_400` (×26) | tom/for lang tittel (201 tegn) og beskrivelse (5 001); porsjoner 0, −2 og 1 001; ingen steg, tomt/for langt steg (2 001), negativ timer, timer over en uke (10 081), 101 steg; ingen ingredienser, 101 linjer, negativ mengde, for langt notat (201); linje uten ingrediens, med begge typer og med ukjent ubekreftet ingrediens; bildeadresse uten protokoll, `ftp:` og `javascript:`; manglende `title`, `description`, `categoryId` og `servings` | 400 `ProblemDetails`, og ingenting lagres |
+| `test_the_limits_themselves_are_accepted` (×9) | 1 og 1 000 porsjoner, timer 0 og 10 080, 100 steg, 100 linjer, tittel på 200 tegn, `http:` og `https:` | 201 (grensene er tillatt, en mer enn grensen er ikke) |
+| `test_references_to_things_that_do_not_exist_give_409` (×3) | ukjent kategori, ingrediens og enhet | 409 |
+| `test_update_validates_like_create_and_changes_nothing_when_it_fails` | `PUT` med tom tittel, uten steg og med ukjent kategori | 400, 400 og 409; oppskriften er uendret |
+| `test_the_favorite_request_needs_a_boolean` | `isFavorite: "kanskje"` | 400, og favoritt er uendret |
+
+**Egne (ubekreftede) ingredienser i en oppskrift:**
+
+| Test | Hva den gjør | Forventer |
+| --- | --- | --- |
+| `test_a_recipe_can_use_the_users_own_unconfirmed_ingredient` | en linje med `unconfirmedIngredientId`; så slette den ubekreftede før og etter oppskriften | linja har `name` fra den ubekreftede og `ingredientId = null`; sletting av ingrediensen gir 409 så lenge oppskriften bruker den, og 204 etterpå |
+| `test_someone_elses_unconfirmed_ingredient_cannot_be_used` | Alice bruker Bob sin ubekreftede ingrediens | 400 (samme svar som for en som ikke finnes) |
+| `test_approving_moves_the_recipe_lines_to_the_official_ingredient` | admin godkjenner Alice sin ubekreftede ingrediens som en oppskrift bruker | linja peker nå på den offisielle ingrediensen (mengde og enhet uendret); en ny oppskrift kan ikke bruke den løste ubekreftede (400) |
+| `test_merging_moves_the_recipe_lines_to_the_existing_ingredient` | samme med `merge` | linja peker på ingrediensen den ble slått sammen med |
+
+---
+
+## 14. `test_core_recipe_nutrition.py`: næring per oppskrift (12 tilfeller) 🔒
+
+`GET /api/user/recipes/{id}/nutrition` regnes ut på forespørsel fra dagens ingrediensdata (lagres ikke). Testene lager
+ingredienser med kjente verdier og sjekker regnestykket. Tallene sammenlignes med små avrundingsmarginer (veiledende verdier).
+
+| Test | Hva den gjør | Forventer |
+| --- | --- | --- |
+| `test_nutrition_is_total_and_per_serving` | 200 g av 100 kcal/100 g, fire porsjoner | 200 kcal totalt og 50 per porsjon (kJ og to stoffer likeså); stoffet med verdi 0 er ikke med; 1 av 1 ingrediens telt |
+| `test_nutrients_come_in_the_order_of_the_catalog` | ingrediens med stoffene sendt i omvendt rekkefølge | stoffene kommer i katalogens rekkefølge |
+| `test_per_serving_follows_the_servings_but_the_total_does_not` | endrer porsjoner fra 4 til 8 med `PUT` | totalen er uendret, per porsjon halveres |
+| `test_several_lines_are_summed` | 100 g av en og 50 g av en annen (300 kcal) | 250 kcal, 2 av 2 telt |
+| `test_an_own_portion_is_used_without_deducting_the_inedible_part` | 2 stk (1 stk = 50 g) av en ingrediens med 50 % spiselig del | 100 g regnes med (ingen fratrekk for uspiselig del) |
+| `test_weight_units_lose_the_inedible_part` | 500 g av en ingrediens med 50 % spiselig del | 250 g regnes med |
+| `test_weight_units_are_converted_with_the_unit_ratio` | 0,5 kg | 500 g regnes med (enhetens forholdstall) |
+| `test_volume_uses_the_weight_of_the_ingredients_volume_portion` | ingrediens med 1 dl = 90 g; 2 dl og 2 ss | dl brukes direkte (180 g), ss skaleres via gram per ml fra dl-porsjonen |
+| `test_lines_that_cannot_be_counted_are_reported_with_a_reason` | fire linjer: telles, «etter smak», egen ubekreftet og dl uten volumporsjon | 1 av 4 telt; `skippedLines` har `ToTaste`, `Unconfirmed` og `NoConversion`, hver med linjens id og navn |
+| `test_a_recipe_with_nothing_to_count_has_no_totals` | bare en «etter smak»-linje | `energyKcal`/`energyKj` er `null`, ingen stoffer, 0 av 1 telt |
+| `test_nutrition_follows_changes_to_the_ingredient` | admin endrer ingrediensens kcal fra 100 til 300 | neste kall gir 300 (aldri utdatert) |
+| `test_an_approved_ingredient_starts_counting_when_it_gets_nutrition_data` | en ubekreftet linje (hoppet over) godkjennes som en ingrediens med 120 kcal | linja er nå telt og bidrar med 120 kcal |
+
+> Ikke testet (bevisst utelatt, ville kreve henholdsvis 100 og 500 opprettelser per kjøring): grensene på 100 egne ubekreftede ingredienser og 500 oppskrifter per bruker.
+> Grensen på 10 ventende er testet. Ikke bygget i Core ennå (og derfor ikke testet): deling av oppskrifter, opprydding av oppskrifter
+> når en konto slettes, bildeopplasting, måltidsplan og handleliste.
+
+---
+
+## 15. Slik leser du et resultat
 
 ```text
-293 passed in 5.6s
+524 passed in 9.4s
 ```
 
 * **passed**: testen oppfylte forventningen.

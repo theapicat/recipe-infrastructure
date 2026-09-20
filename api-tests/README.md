@@ -67,7 +67,12 @@ dem. Åpne Mailpit (<http://localhost:8025>), søk på kjøre-ID-en (står øver
 | `test_auth_admin.py` | Tilgangsmatrise for alle 14 admin-endepunkter, brukeradministrasjon, sperring, svarteliste |
 | `test_core_public.py` | Kontaktskjemaet **må virke for anonyme** (uten og med ugyldig token) |
 | `test_core_catalog_access.py` | Tilgangsmatrise (anonym/bruker/admin × endepunkt) for alle seks kataloger |
-| `test_core_catalog_crud.py` | Livssyklus (opprett, les, endre, slett) per katalog, cache-ugyldiggjøring, DTO-kontroll av alle rader, feilhåndtering |
+| `test_core_catalog_crud.py` | Livssyklus (opprett 201, les, endre, slett) per katalog, server-tildelt id og små bokstaver, cache-ugyldiggjøring, DTO-kontroll av alle rader, feilhåndtering |
+| `test_core_nutrients.py` | Næringsstoffene: skrivebeskyttet, URL-enkodede id-er, rekkefølge, konsistens med enhetskatalogen |
+| `test_core_ingredients.py` | Søk og filtre (navn, kategori, søkeord, allergen inkluder/ekskluder), lesing, admin opprett/endre/slett, valideringsregler, sletting av ingredienser i bruk |
+| `test_core_unconfirmed_ingredients.py` | Brukerens private rader og admin-køen: be om vurdering, godkjenn/slå sammen/avslå, grenser (10 ventende), isolasjon mellom brukere |
+| `test_core_recipes.py` | Oppskrifter er strengt brukereide (tom liste, ti oppskrifter, andres id gir 404), livssyklus, favoritt, alle valideringsregler og grenser, egne ingredienser |
+| `test_core_recipe_nutrition.py` | Næringsberegningen: gram fra porsjon/vekt/volum, uspiselig del, totalt og per porsjon, hoppede linjer med årsak, aldri utdatert |
 
 Ikke automatisert (bevisst eller umulig): selve Google-innloggingen (testen sjekker bare at den starter og
 redirecter til Google), lykkelige stier som krever en lenke/token fra e-post (`confirm-email`, `reset-password`; brukere
