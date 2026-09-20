@@ -49,7 +49,7 @@ Alle felles bakgrunnstjenester kjøres og orkestreres via `docker-compose.yaml` 
 
 * **`recipe-auth-db`** (PostgreSQL - Port 5432): Lagring av brukerkontoer, passord-hashes, tilganger og roller.
 * **`recipe-core-db`** (PostgreSQL - Port 5433 på vert): Lagring av oppskrifter, trinn, ingredienser og kategorier.
-* **`recipe-scraper-cache`** (MongoDB - Port 27017): Dokumentdatabase for mellomlagring av skrapt rådata.
+* **`recipe-mongo-db`** (MongoDB - Port 27017): Dokumentdatabase-server delt av to tjenester, hver med sin egen database: `recipe_notification_db` (feilede e-poster, `recipe-notification-service`) og `recipe_scraper_db` (mellomlagring av skrapt rådata, `recipe-scraper-service`).
 * **`recipe-message-broker`** (RabbitMQ - Port 5672 / 15672): Meldingsbuss for asynkron oppgavekø og hendelsesbasert kommunikasjon (AMQP).
 * **`recipe-seq`** (Seq - Port 5341): Sentralisert dashboard for mottak og visualisering av strukturerte Serilog-logger.
 * **`recipe-mailpit`** (Mailpit - Port 1025 / 8025): Lokal SMTP-felle og web-dashboard for trygg e-postinspeksjon i utviklingsmiljøet.
@@ -92,7 +92,7 @@ Alle felles bakgrunnstjenester kjøres og orkestreres via `docker-compose.yaml` 
                                                      +-----------------------+ +-----------------------+
                                                                  │                         │
                                                          MongoDB ▼                         ▼ SMTP (Dev)
-                                                        [recipe-scraper-cache]       [recipe-mailpit]
+                                                        [recipe-mongo-db]            [recipe-mailpit]
 
 ```
 
@@ -129,7 +129,8 @@ For smidig lokal utvikling i terminalen inneholder dette repositoriet hjelpeskri
 * **`start-project.sh`**: Starter hele infrastrukturen i Docker Compose, alle .NET 10-bakendetjenestene og Next.js-webappen i separate terminaløkter for lokal utvikling.
 * **`stop-project.sh`**: Stopper alle kjørende prosesser og rydder opp lokale porter.
 * **`health-test.sh`**: Utfører en hurtigsjekk av alle definerte helseendepunkter og porter i utviklingsmiljøet.
-* **`count_loc.py`**: Statistikkverktøy skrevet i Python. Teller *Lines of Code* (LOC) på tvers av hele prosjektporteføljen (ekskludert auto-genererte filer som `bin`, `obj`, `.next`, `node_modules`, samt dokumentasjonsspeilingen i `documentation/` for å unngå dobbeltelling).
+* **`run-api-tests.sh`**: Kjører den eksterne API-testsuiten i [`api-tests/`](api-tests/README.md) (pytest) mot den kjørende stacken. Se avsnittet «API-tester» under.
+* **`count_loc.py`**: Statistikkverktøy skrevet i Python. Teller *Lines of Code* (LOC) på tvers av hele prosjektporteføljen (ekskludert auto-genererte filer som `bin`, `obj`, `.next`, `node_modules`, samt dokumentasjonsspeilingen i `documentation/` for å unngå dobbeltelling). Testkode (mapper som heter `Tests`/`tests`/`api-tests`, samt `*.test.ts`/`test_*.py`) telles som egen kategori **Tester**, atskilt fra «Ren Kode». Den *flyttes* dit og legges ikke oppå, så totalen er uendret; dokumentasjon og konfigurasjon i testmapper beholder sin egen kategori.
 * Skriver ut en oppsummering med sparklines (Unicode-grafer) direkte i terminalen, inkludert commit-aktivitet hentet fra `git log` på tvers av alle tjeneste-repoene.
 * Genererer en tidsstemplet Markdown-rapport per kjøring under `progress-log/YYYY-MM-DD_HH-MM-SS_LOC.md`, med Mermaid-diagrammer (linjediagram over utvikling, kakediagram over språkfordeling) som GitHub rendrer direkte.
 * All historikk lagres i `progress-log/history.jsonl` (én linje per måling) - selve datagrunnlaget for trendene.
@@ -137,6 +138,22 @@ For smidig lokal utvikling i terminalen inneholder dette repositoriet hjelpeskri
 * Flagg: `--no-report` (kun terminalutskrift, ingen filer skrives) og `--service <navn>` (dypdykk i én enkelt tjeneste).
 
 
+
+#### API-tester (`api-tests/`)
+
+En uavhengig integrasjonstestsuite i Python (pytest + `requests` + strenge DTO-er) som tester **endepunktene utenfra**,
+uten Postman/Insomnia. Den logger inn som anonym, vanlig bruker og administrator via gatewayen, sjekker tilgangsmatrisen
+(riktig modell tilbake, eller nektet tilgang), oppretter/leser/endrer/sletter testdata med prefikset `apitest-` og
+rydder alt bort igjen. E-postene som testene utløser samles i en sjekkliste som kontrolleres manuelt i Mailpit.
+Data- og e-posttester kjøres kun når `API_TEST_ENV` er `local` (standard) eller `test`.
+
+```bash
+./api-tests/run.sh             # via gatewayen (./dev-scripts/run-api-tests.sh er en snarvei til samme)
+./api-tests/run.sh --direct    # rett mot tjenestene (avgjør om en feil ligger i gatewayen)
+./api-tests/run.sh --read-only # kun lesetester
+```
+
+Se [`api-tests/README.md`](api-tests/README.md) for oppsett, sikkerhet, dekning og hvordan nye endepunkter legges til, og [`api-tests/TESTS.md`](api-tests/TESTS.md) for en gjennomgang av hva hver eneste test gjør.
 
 ---
 
@@ -172,11 +189,11 @@ systemet kan utforskes uten å klone alle syv repoene enkeltvis:
 ```text
 documentation/
 ├── auth-api/             # Speil av recipe-auth-api/Documentation/ (arkitektur, CQRS, events, OpenIddict, teststrategi)
-├── core-api/              # README (tjenesten har ennå ikke en egen Documentation/-mappe)
+├── core-api/              # Speil av recipe-core-api/Documentation/ (arkitektur, endepunkter, CQRS, events, auth/JWT, persistens, teststrategi)
 ├── gateway-api/           # Speil av recipe-gateway-api/Dokumentasjon/ (routing/kontrakt mot hver nedstrøms-tjeneste)
 ├── notification-service/  # Speil av recipe-notification-service/Documentation/ (arkitektur, maler, feilhåndtering, teststrategi)
 ├── scraper-service/       # README (tjenesten er ennå ikke påbegynt utover planlegging)
-├── webapp/                # Speil av recipe-webapp/documentation/ (routing, auth/sesjon, skjemaer/designsystem, kjent teknisk gjeld)
+├── webapp/                # Speil av recipe-webapp/documentation/ (routing, auth/sesjon, skjemaer/designsystem, kjent teknisk gjeld, oppskriftsdomenet)
 └── legal/                 # Speil av recipe-webapp/public/docs/legal/ (personvern, cookies, vilkår, tilgjengelighet)
 
 ```
@@ -185,7 +202,8 @@ documentation/
 > kildetjenesten. Kjør en ny kopiering herfra når et tjeneste-repo får oppdatert dokumentasjon
 > (`cp <tjeneste>/Documentation/*.md recipe-infrastructure/documentation/<tjeneste>/`), ellers
 > går de gradvis ut av synk slik den forrige (nå erstattede) kopien av auth-api-dokumentasjonen
-> hadde gjort.
+> hadde gjort. Sjekk om et speil er à jour med `diff -rq documentation/<tjeneste> ../recipe-<tjeneste>/<dokumentasjonsmappe>`
+> (ingen utskrift = identisk). Sist oppdatert og verifisert 2026-09-19.
 
 Se også [`todos/consistency-audit.md`](todos/consistency-audit.md) for en gjennomgang av
 Dockerfiles, Serilog-oppsett og MassTransit-contracts på tvers av tjenestene, og funn som bør

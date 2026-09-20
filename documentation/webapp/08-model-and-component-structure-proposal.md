@@ -36,11 +36,8 @@ lib/models/
   i `lib/models/`-rot, ikke i en domenemappe.
 - ✅ **`lib/models/auth/openIddictResponse.ts`, `lib/models/auth/deleteProfileRequest.ts`,
   `lib/models/user/user.ts`** — alle ubrukte, slettet.
-- ⏳ **`UserRoleType`** (`"Admin" | "User" | string"` → `"Admin" | "User"`) er **ikke** strammet inn ennå.
-  `| string` nuller ut hele poenget med unionen og er trolig rotårsaken til at `Header.tsx` sammenligner
-  rollen annerledes enn resten av appen. Innstramming utløser en reell type-feil i `google-callback/route.ts`
-  (rollen kommer uvalidert fra en query-param) som krever en bevisst normaliseringsbeslutning — se
-  [07](./07-known-issues-and-tech-debt.md).
+- ✅ **`UserRoleType`** er nå `"admin" | "user"` (små bokstaver, slik backend sender dem), og `normalizeRole()` i
+  `lib/models/types.ts` brukes overalt en rolle kommer inn i appens tilstand, inkludert `google-callback/route.ts`.
 
 ## 3. Ny struktur — legg til domenemapper etter behov, ikke på forskudd
 

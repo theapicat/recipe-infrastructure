@@ -1,7 +1,211 @@
-# Konsistenssjekk på tvers av tjenester (2026-09-14, oppdatert 2026-09-14)
+# Konsistenssjekk på tvers av tjenester (2026-09-14, oppdatert 2026-09-20)
 
-Automatisk gjennomgang av Dockerfiles, Serilog-oppsett og MassTransit-contracts i alle
-`.NET`-tjenestene.
+Gjennomgang av Dockerfiles, Serilog-oppsett, MassTransit-contracts, dokumentasjonsspeil og
+`appsettings*.json` i alle `.NET`-tjenestene. Seksjonene under «2026-09-19» er nyest; resten er fra
+14. september.
+
+---
+
+# 2026-09-19
+
+## ✅ Løst 2026-09-19
+
+* **Dokumentasjonsspeilet** i `documentation/` er oppdatert og verifisert identisk med kildene
+  (`diff -rq`) for alle seks speil: `auth-api`, `core-api`, `gateway-api`, `notification-service`,
+  `webapp`, `legal` (og `scraper-service`-README). `core-api/` speiler nå de sju dokumentene i
+  `recipe-core-api/Documentation/` i stedet for README-en, og `webapp/` har fått
+  `09-recipe-domain-and-planned-pages.md`.
+* **`CLAUDE.md` og `README.md`** i dette repoet er oppdatert: fjernet referansen til den ikke-eksisterende
+  `todos/notification-integration.md`, rettet MongoDB-containernavnet i README (`recipe-mongo-db`, delt av
+  notification- og scraper-tjenesten), lagt til appsettings-revisjon som punkt 5 i revisjonsrutinen, og
+  skrevet inn brukerens avgjørelser (se under).
+* **JWT-nøkkelen i `recipe-core-api`** (`API/appsettings.Development.json`) var tom, så Core API ville ha
+  kastet `InvalidOperationException` ved oppstart. Fylt inn med samme dev-nøkkel som Auth API og gateway
+  (godkjent av bruker).
+* **`recipe-gateway-api/docker-compose.yml`**: standardverdien for `JWT_KEY` (brukes kun hvis `.env` mangler)
+  var en helt annen nøkkel enn den Auth API signerer med. Da ville alle tokens gitt `401` uten annen
+  feilmelding. Satt til samme dev-nøkkel.
+* **`DOCUMENTATION_GUIDE.md`** er fjernet av bruker. De tre døde referansene i `recipe-core-api`
+  (`CLAUDE.md`, `RECIPE_BACKEND_NOTES.md`, `todo.md`) er fjernet.
+
+## 📌 Avgjort av bruker 2026-09-19
+
+* **Andre brukeres data eksisterer ikke for innlogget bruker.** Brukerspesifikke spørringer filtrerer på eier
+  fra tokenet og gir tomt resultat (tom liste), aldri `403`, og ikke en `404` som avslører at ressursen
+  finnes. Skrevet inn i `recipe-core-api` (`Documentation/05`, `RECIPE_BACKEND_NOTES.md`, `todo.md`) og i
+  `CLAUDE.md` her. Gjennomgang av eksisterende API-er: I Auth API er det kun `AdminController`
+  (rolle `admin`) som har id-ruter (`users/{id}`, `blacklist/{id}`); `AccountController` handler alltid på
+  «meg» fra token-claims; Core API har ingen
+  eide ressurser ennå (kun delte kataloger, `Recipe.OwnerUserId` er eneste spor). Ingenting å endre i dag.
+  **Fortsatt åpent:** statuskode/kropp for oppslag, endring eller sletting av *én* ressurs på id som tilhører
+  en annen bruker.
+* **Kontaktskjemaet er anonymt** og skal fungere for brukere som ikke er innlogget. Se under: ingenting i
+  dag krever en bruker. **Ingen endringer i kontaktskjema-eventet uten uttrykkelig beskjed.**
+
+## Funnet av den nye API-testsuiten (`api-tests/`)
+
+Suiten (se `api-tests/README.md`) ble kjørt mot en levende stack 2026-09-19. De to første (🔴) er rettet 2026-09-20.
+Feilene som fortsatt står (🟡) testes **ikke** lenger (fjernet etter ønske 2026-09-20: testsuiten skal bare dekke det som
+finnes og skal virke). De står her som notater, til de eventuelt rettes.
+
+**✅ RETTET 2026-09-20 — `TOKEN_ISSUER` (var 🔴: ingen innlogget bruker kom gjennom til Core).**
+Tokenet Auth API utstedte via `/connect/token` fikk `iss` lik forespørselens base-URL (`http://localhost:5000/` via
+gatewayen, `:5001` direkte), mens gateway og Core validerte mot `Jwt:Issuer`. Alle innloggede brukere fikk
+`401 The issuer '…' is invalid` på `/api/user/**` og `/api/admin/**`. Ingen hadde merket det fordi Auth validerer mot sin
+egen issuer, og fordi Core sine brukerendepunkter er nye. Rettet med en fast issuer: `options.SetIssuer(...)` i
+`recipe-auth-api/API/Extensions/OpenIddictExtensions.cs`, med vakt som kaster ved oppstart hvis `JWT:Issuer` ikke er en
+absolutt URI på normalisert form. Verdien er endret fra `recipe-auth-app` til `http://recipe-auth-app/` og står nå
+bokstavelig likt i auth (appsettings ×2), gateway (Development, compose-fallback, lokal `.env`, README) og core
+(Development, testkonfig, docs). Verifisert: tokenet har `iss = http://recipe-auth-app/` uansett om det hentes via
+gatewayen eller direkte, og både gateway og Core godtar det. Auth 119/119 og Core 34/34 xUnit-tester består.
+*Effekt ved utrulling:* tokens og refresh tokens utstedt før endringen er ugyldige; alle må logge inn på nytt.
+
+**✅ RETTET 2026-09-20 — `GATEWAY_ADMIN_ROLE_CASING` (var 🔴: admin fikk 403 på `/api/admin/**` via gatewayen).**
+`AdminUser`-policyen brukte `RequireRole("Admin")` mens tokenet har `role: admin`. Rettet til `RequireRole("admin")` i
+`recipe-gateway-api/API/Extensions/GatewayPolicyExtensions.cs`. Verifisert: admin får 200 på admin-rutene både via
+gatewayen og direkte mot Core, og vanlig bruker får fortsatt 403. Øvrige forekomster av «Admin»/«User» som rollenavn
+er gjennomgått (kode, kommentarer og docs i alle repoer); se «Løst» øverst.
+
+**🟡 `CORE_5XX_ON_CLIENT_ERROR`.** Core svarer `500` med Npgsql-unntakstekst i kroppen på: dupliserte id-er
+(`23505`), ugyldig fremmednøkkel (`23503`, f.eks. en unit med ukjent `unitTypeId`) og sletting av en rad andre rader
+peker på (`23503`). Skal være 4xx (400/409) og skal ikke lekke databasedetaljer. Dessuten: `PUT` på ukjent id gir
+`200` uten å gjøre noe, og duplikate *navn* aksepteres (ingen unikhetsregel) — dokumentert oppførsel, ikke testet som feil.
+
+**🟡 `RESET_PASSWORD_REVEALS_USERS`.** `POST /api/auth/account/reset-password` gir `404 «Bruker ikke funnet»` for
+ukjent e-post, men `400` (ugyldig token) for kjent. Dermed kan man finne registrerte adresser, selv om `/recover`
+er nøye generisk. Begge tilfeller bør gi samme svar.
+
+**🟡 `REGISTER_JSON_NOT_BOUND`.** `POST /api/auth/account/register` har `[Consumes("…form-urlencoded", "application/json")]`
+men `[FromForm]`, så en JSON-body aksepteres og bindes aldri (alle felt «mangler»). Webappen sender skjema, så det
+virker i praksis; enten fjern `application/json` fra `[Consumes]` eller bytt til `[FromBody]`.
+
+**🟡 `AUTH_HEALTH_SERVICE_NAME`.** `GET /api/auth/health` returnerer `service: "API"` mens gateway og Core returnerer
+repo-navnet.
+
+**🟡 `CONTACT_FORM_NO_VALIDATION`.** (Se også kontaktskjema-seksjonen under.) Bekreftet av testsuiten: tomme felt gir `200`.
+
+**🟢 Bekreftet i orden (verifisert av suiten):**
+* Anonym avvises (`401`) på alle beskyttede gateway-ruter, og vanlig bruker får `403` på alle 14 admin-endepunkter i Auth API og alle admin-ruter i Core.
+* Spoofede `X-User-Id`/`X-User-Roles` fra klienten gir aldri tilgang.
+* CORS tillater kun frontend-opprinnelsen.
+* Innlogging før e-postbekreftelse er tillatt (bevisst, 14-dagers frist), sperrede brukere kan ikke logge inn, slettede brukere kan ikke logge inn.
+* Hele livssyklusen (opprett, les, endre, slett) virker for alle seks kataloger (rett mot Core), og admin-endringer ugyldiggjør cachen i brukerlistene umiddelbart.
+* Kontaktskjemaet virker uten innlogging (uten header og med `Bearer undefined`) og krever ingen bruker.
+* E-postsjekklisten stemmer med hva Mailpit faktisk mottok. Unntaket er de 6 kontaktskjema-e-postene per kjøring, som forventet ikke kommer (namespace-feilen under). Bekreftet empirisk: eksakt de e-postene sjekklisten merker med ⚠️ uteblir.
+
+**Mangler noe i endepunktene for å teste «opprett, endre, slett, rydd»?** Nei, ingenting som blokkerer:
+brukere kan slettes fullstendig (`POST /admin/users/delete`), svartelisteoppføringer kan fjernes, og katalograder kan slettes
+med klient-valgt id. Begrensninger (ikke blokkeringer): `GET /admin/users` har ikke filter/paginering (`PaginatedResponse`
+finnes, men brukes ikke), så testene filtrerer klientsiden; e-postlenke-flyter (`confirm-email`, `reset-password` med
+gyldig token) kan bare fullføres ved å lese e-posten, så brukere bekreftes via admin-endepunktet; katalogene er tomme i
+dev (`source-data/` lastes ikke), så det finnes ingen seedet referansedata å lese; ingredienser, næringsstoffer,
+oppskrifter, måltidsplan og handleliste har ingen endepunkter ennå. De to reelle blokkeringene (`TOKEN_ISSUER` og
+`GATEWAY_ADMIN_ROLE_CASING`) er rettet 2026-09-20, og Core-endepunktene testes nå via gatewayen som en ekte bruker.
+
+## 🔴 Kontaktskjemaet: meldinger forsvinner stille (ikke endret, kun undersøkt)
+
+**Flyt (verifisert i koden):** `ContactForm.tsx` → Next-rute `app/api/public/contact/route.ts` →
+gateway `POST /api/public/contact-form` (`public-route`, ingen policy, ingen fallback-policy) →
+`ContactFormController` (`[AllowAnonymous]`, `PublicController`) → `SendContactFormCommandHandler` →
+`IEventPublisher` (MassTransit) → RabbitMQ → `ContactFormSubmittedConsumer` → `ContactFormProcessor` →
+to e-poster (admin + kvittering til avsender).
+
+**Krever noe i flyten en bruker? Nei.** Ingen `UserId`, ingen `X-User-Id`, ingen oppslag mot Auth API i
+webapp-ruten, kontrolleren, kommandoen, eventet eller prosessoren. Eventet har kun
+`Name/Email/Subject/Message/SubmittedAt`. Testet også at en anonym forespørsel med
+`Authorization: Bearer undefined` (det webappens `agentExternal.post` sender uten sesjon, fordi
+`getToken()` gir `undefined`) slipper gjennom et `[AllowAnonymous]`-endepunkt med samme JwtBearer-oppsett som
+gateway/core: `200` uten header, med `Bearer undefined` og med `Bearer `; `401` kun på `[Authorize]`.
+Ren kosmetikk: `agentExternal.post` bør utelate headeren når token mangler, slik `postForm` allerede gjør.
+
+**Feil 1 — 🔴 namespace-uoverensstemmelse (bekreftet mot kjørende RabbitMQ):**
+
+| | Namespace | Exchange |
+| --- | --- | --- |
+| Core API i dag | `Contracts.Event` (entall, mappe `Contracts/Event/`) | `Contracts.Event:ContactFormSubmittedEvent` — finnes ikke ennå (Core har ikke publisert med dagens kode) |
+| Notification-service (consumer) | `Contracts.Events.UserActions` | `Contracts.Events.UserActions:ContactFormSubmittedEvent` → bundet til kø `ContactFormSubmitted` |
+| Auth API | `Contracts.Events.UserActions` (identisk kopi) | ingen publisher og ingen consumer; død kopi |
+
+MassTransit binder exchange på fullt kvalifisert typenavn. Første gang Core publiserer, opprettes
+`Contracts.Event:ContactFormSubmittedEvent` **uten noen binding til noen kø**, og RabbitMQ forkaster meldingen
+uten feil. **Konsekvens:** handleren returnerer `true`, brukeren ser «Takk! Meldingen er sendt», og verken
+admin-varsel eller kvittering blir noen gang sendt. Ingenting logges som feil noe sted.
+Broker-historikk: det finnes også en `Contracts.Events:ContactFormSubmittedEvent`-exchange (samme namespace
+som Core hadde ved revisjonen 14. sept.) som fortsatt er bundet til `ContactFormSubmitted`-køen, og en
+`MassTransit:Fault--Contracts.Events:ContactFormSubmittedEvent--`-exchange. Trolig rester fra tidligere
+namespace-varianter (ikke undersøkt nærmere); de gjør ikke dagens problem mindre.
+Ingen kall er observert så langt (køen `ContactFormSubmitted` har 0 meldinger og 0 consumers akkurat nå;
+notification-servicen kjørte ikke).
+
+**Forslag til retting (IKKE gjort, venter på beskjed):** flytt eventet i Core til
+`Contracts/Events/UserActions/ContactFormSubmittedEvent.cs` med `namespace Contracts.Events.UserActions;`,
+byte-identisk med Notification (og ev. slett den døde kopien i Auth API). En liten test i Core som
+sammenligner `typeof(ContactFormSubmittedEvent).FullName` med den forventede strengen fanger regresjon.
+
+**Feil 2 — 🟡 ingen serverside-validering på et anonymt endepunkt:**
+
+* `ContactFormRequest` (i `Domain`, som har `<Nullable>disable</Nullable>`) har ingen valideringsattributter,
+  så tom/manglende `Name`, `Email`, `Subject`, `Message` slipper gjennom. Webappen validerer (gyldig e-post,
+  emne ≤ 150, melding ≤ 2000 tegn), men det omgås ved direktekall mot `/api/public/contact-form`.
+* Handleren returnerer alltid `true`; `BadRequest("Ugyldig epost eller forespørsel")` i kontrolleren kan aldri nås.
+* `SubmittedAt` kommer fra klienten (standardverdi `DateTime.UtcNow`) og kan forfalskes.
+* Ingen rate limiting i gateway eller Core.
+* E-postmalene (`ContactFormAdminNotification.html`, `ContactFormUserReceipt.html`) skriver ut
+  `{{ name }}`, `{{ subject }}`, `{{ message }}` uten `html.escape`, og Scriban escaper ikke automatisk.
+
+**Samlet risiko når Feil 1 er rettet:** hvem som helst kan få din avsenderadresse til å sende en e-post
+(med fritt valgt emne og HTML-innhold) til hvilken som helst adresse, uten pålogging og uten begrensning.
+Verdt å ha validering og rate limiting på plass først.
+
+## 🟡 `recipe-scraper-cache` er en foreldreløs container som holder port 27017
+
+`docker ps` viser to Mongo-containere fra samme compose-prosjekt: `recipe-scraper-cache` (fra før tjenesten ble
+omdøpt i `docker-compose.yaml`, opprettet 30. aug, volum `recipe-infrastructure_mongo_cache_data`, publisert
+på `localhost:27017`, på `recipe-net`) og `recipe-mongo-db` (opprettet 16. sept., volum
+`recipe-infrastructure_mongo_data`, **ikke koblet til noe nettverk**). Det som faktisk svarer på
+`localhost:27017` er den gamle. `docker compose down` fjerner ikke foreldreløse containere, og
+`recipe-mongo-db` (navnet Notification-servicens Docker-oppsett bruker) er ikke nåbar på `recipe-net`.
+Ikke rørt (sletter data): når du vet at innholdet i det gamle volumet ikke trengs, kjør
+`docker compose down --remove-orphans` og `docker compose up -d`, og ev.
+`docker volume rm recipe-infrastructure_mongo_cache_data`.
+
+## ✅ Dokumentasjon i `recipe-gateway-api` var utdatert: rettet 2026-09-20
+
+`Dokumentasjon/core-api.md` sa at Core ikke gjør egen autentisering og at det ikke finnes konfigurasjon å holde i sync.
+Omskrevet: Core validerer JWT selv, og `Jwt:Key`/`Issuer`/`Audience` må være identiske. Gatewayens `CLAUDE.md`, `README.md`
+og `Dokumentasjon/auth-api.md` er oppdatert for små rollenavn og ny issuer. Speilet her er kopiert på nytt og verifisert.
+
+## ✅ `AdminUser`-policyen i gatewayen: rettet 2026-09-20
+
+`RequireRole("Admin")` → `RequireRole("admin")`. Se «RETTET 2026-09-20 — `GATEWAY_ADMIN_ROLE_CASING`» over.
+
+## appsettings-revisjon 2026-09-19
+
+Verdier sammenlignet uten å skrive ut hemmeligheter. **`recipe-scraper-service` er holdt utenfor** etter
+brukerens ønske (prosjektet er ikke påbegynt; ingen opprydding der før arbeidet starter).
+
+| Sjekk | Resultat |
+| --- | --- |
+| JWT `Issuer` og `Audience` i auth, gateway, core | 🟢 identiske; issuer endret 2026-09-20 til `http://recipe-auth-app/` (absolutt URI), `Audience` = `recipe-frontend` |
+| JWT signeringsnøkkel: auth (`JWT:SecretKey`) = gateway (`Jwt:Key`, både `appsettings.Development.json` og `.env`) | 🟢 identiske |
+| JWT-nøkkel i core (`Jwt:Key`) | 🟢 rettet: var tom (se «Løst») |
+| Gatewayens `docker-compose.yml` standard `JWT_KEY` | 🟢 rettet: var en annen nøkkel (se «Løst») |
+| `ClockSkew = 0` og `ValidateLifetime` i gateway og core; SignalR-token fra `?access_token=` kun under `/hubs` | 🟢 likt |
+| `RabbitMQ`-blokk (host, port, vhost, bruker, passord) i auth, core, notification | 🟢 identiske. Scraper har ingen ennå (ikke bygget) |
+| DB-, Mongo- og RabbitMQ-legitimasjon mot `recipe-infrastructure/.env` | 🟢 stemmer overalt |
+| Postgres-porter: auth `5432`, core `5433` (Core Development bruker `5433`) | 🟢 stemmer med infra-`.env` |
+| Serilog: base `recipe-seq:80`, Development `localhost:5341`, `Properties.Application` = repo-navn | 🟢 likt (uendret fra 14. sept.) |
+| **Alle `appsettings.Development.json` mot infra-`.env`** (auth, core, notification, gateway): Postgres host/port/db/bruker/passord, Mongo-streng, RabbitMQ, SMTP `localhost:1025`, Seq `localhost:5341`, gatewayens clustere `localhost:5001/5002/5003` | 🟢 alle felt stemmer (kontrollert 2026-09-19). Forventet Postgres-streng: `Host=localhost;Port=<*_DB_PORT>;Database=<*_DB_NAME>;Username=<*_DB_USER>;Password=<*_DB_PASSWORD>;Client Encoding=UTF8;` (auth `5432`, core `5433`) |
+| **Live innloggingstest** med nøyaktig strengene fra Development-filene mot de kjørende containerne | 🟢 auth (`localhost:5432`) og core (`localhost:5433`) logger inn, UTF8-koding; Mongo-strengen til notification svarer på `ping`; SMTP `1025`, Seq `5341` og Mailpit-UI `8025` svarer |
+| `recipe-core-api/API/appsettings.json`: `ConnectionStrings` peker på `Host=recipe-core-db;Port=5432` (Docker-navn), mens auth/notification har `localhost` i base-filen og overstyrer via `docker-compose.yml`. Samme fil har `RabbitMQ:Host=localhost` og Seq `recipe-seq`, så den er også internt blandet | 🟡 parkert av bruker: dockerisering av appene er ikke i fokus (alt kjører på `localhost` unntatt infrastrukturen). Velg konvensjon når Core dockeriseres |
+| Auth bruker `JWT:SecretKey`, gateway/core `Jwt:Key` | 🟢 nøkler i .NET-konfigurasjon er ikke case-sensitive; kun egenskapsnavnet er ulikt (kode, ikke endret) |
+| Gatewayens `appsettings.json` har ingen `Jwt`-blokk (kun Development-filen), core har ingen i base-filen | 🟡 fungerer i Development og via compose; utenfor Development må verdiene komme fra miljøvariabler |
+| Auth `Logging:LogLevel` (Debug/OpenIddict) skiller seg fra de andre i Development | 🟢 kun logging, ufarlig |
+| `SmtpSettings:AdminNotificationEmail` (`admin@kjokkenhylla.no`) vs. Auth-admin (`admin@kjoekkenhylla.local`) | 🟢 to ulike formål, bevisst |
+
+---
+
+# 2026-09-14
 
 ## ✅ Løst: Serilog-oppsett er nå identisk på tvers av alle fem tjenester
 
@@ -40,7 +244,8 @@ naturlig ryddet opp i etter hvert som disse tjenestene bygges ut, og er kun list
 påminnelse for når det arbeidet starter:
 
 * **`ContactFormSubmittedEvent`-namespace er ulikt** mellom `recipe-core-api`
-  (`Contracts.Events`, i mappa `Contracts/Event/` — entall) og
+  (`Contracts.Event` i dag, i mappa `Contracts/Event/` — entall; var `Contracts.Events` da dette ble skrevet
+  14. sept. Se «🔴 Kontaktskjemaet» øverst for verifisering mot RabbitMQ) og
   `recipe-notification-service`/`recipe-auth-api` (`Contracts.Events.UserActions`, i
   `Contracts/Events/` — flertall). MassTransit binder RabbitMQ-exchange på fullt kvalifisert
   typenavn som standard, så dette er i praksis to forskjellige exchanges — kontaktskjema-eventet

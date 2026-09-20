@@ -14,6 +14,7 @@
 ### OpenIddict Server & Token-konfigurasjon
 
 * **Protokoll & Endepunkt:** OAuth2 og OpenID Connect-tokenutstedelse håndteres via `POST /api/auth/connect/token` (`application/x-www-form-urlencoded`).
+* **Fast issuer:** `JWT:Issuer` (dev: `http://recipe-auth-app/`) settes eksplisitt med `options.SetIssuer(...)` i `OpenIddictExtensions`. Uten dette utleder OpenIddict `iss` fra forespørselens base-URL (`http://localhost:5000/` via gatewayen, `http://localhost:5001/` direkte), og gatewayen og Core avviser tokenet, som validerer mot samme `Jwt:Issuer`. Verdien må være en absolutt URI skrevet på normalisert form (med avsluttende `/`); ved oppstart kastes `InvalidOperationException` hvis den ikke er det. Den må være **bokstavelig lik** `Jwt:Issuer` i `recipe-gateway-api` og `recipe-core-api`.
 * **Tillatte Flows:**
 * **Password Grant (`grant_type=password`):** Førstegangs innlogging med brukernavn/e-post og passord.
 * **Refresh Token Grant (`grant_type=refresh_token`):** Automatisk og sømløs fornyelse av økten uten at brukeren må oppgi legitimasjon på nytt.
@@ -100,7 +101,7 @@ RFC 7009-kompatibelt endepunkt som inndrar et refresh-token permanent. OpenIddic
 
 1. Oppretter en fersk transaksjon via `IOpenIddictServerFactory.CreateTransactionAsync()`.
 2. Setter manuelt det ASP.NET Core-verten ellers ville satt automatisk fra selve HTTP-forespørselen:
-   * `transaction.BaseUri` — uten denne (eller en global `Options.Issuer`, som ikke er konfigurert her) kaster OpenIddict et unntak i `PrepareAccessTokenPrincipal` fordi den ikke finner noen issuer å bruke.
+   * `transaction.BaseUri` — uten denne (eller en global `Options.Issuer`, som nå er satt fast fra `JWT:Issuer`; `BaseUri` er likevel nødvendig for at endepunkts-URI-ene skal kunne utledes) kaster OpenIddict et unntak i `PrepareAccessTokenPrincipal` fordi den ikke finner noen issuer å bruke.
    * `transaction.Response` — et tomt `OpenIddictResponse`-objekt. `AttachSignInParameters` skriver token-verdiene inn i dette; uten det kastes en `NullReferenceException`.
    * `transaction.Request.ClientId = recipe-web-app` — knytter tokenet til riktig klient, avgjørende for at `POST /connect/revoke` (seksjon 2.1) skal finne det igjen senere.
 3. Dispatcher en `ProcessSignInContext` via `IOpenIddictServerDispatcher`, akkurat den samme handler-kjeden OpenIddict selv kjører for `SignIn()`.

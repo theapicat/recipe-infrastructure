@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 
 IGNORE_DIRS = {
     'bin', 'obj', 'node_modules', '.next', '.git', '.vs', '.idea',
-    'dist', 'build', '.vscode', 'coverage', '.venv'
+    'dist', 'build', '.vscode', 'coverage', '.venv', '__pycache__', '.pytest_cache'
 }
 
 IGNORE_FILES = {
@@ -27,6 +27,8 @@ IGNORE_FILES = {
 # unntaket ville alt innholdet der blitt telt to ganger.
 IGNORE_PATH_PREFIXES = {
     os.path.join('recipe-infrastructure', 'documentation'),
+    # Genererte kjørerapporter fra API-testene (e-postsjekklister), ikke kode.
+    os.path.join('recipe-infrastructure', 'api-tests', 'reports'),
 }
 
 # Eksakte filnavn uten filending
@@ -69,6 +71,12 @@ EXT_MAP = {
     '.txt': ('Dokumentasjon', 'Text Docs'),
 }
 
+# Kode som ligger i en av disse mappene, eller har et av disse filnavnmønstrene, telles som «Tester» i stedet for
+# «Ren Kode» (den FLYTTES, så ingenting telles to ganger). Dokumentasjon og konfigurasjon i samme mapper beholder sin
+# egen kategori.
+TEST_DIR_NAMES = {'tests', 'test', '__tests__', 'api-tests'}
+TEST_FILE_SUFFIXES = ('.test.ts', '.test.tsx', '.spec.ts', '.spec.tsx')
+
 SPARK_CHARS = '▁▂▃▄▅▆▇█'
 
 CYAN = '\033[0;36m'
@@ -101,6 +109,15 @@ def get_file_info(filename):
         return cat, lang, ext
 
     return None, None, None
+
+
+def is_test_file(rel_dir, filename):
+    """True hvis filen er testkode: ligger under en testmappe (Tests/, tests/, api-tests/, *.Tests/) eller matcher et testnavn."""
+    lower_name = filename.lower()
+    if lower_name.endswith(TEST_FILE_SUFFIXES) or lower_name.startswith('test_') or lower_name == 'conftest.py':
+        return True
+    parts = [p.lower() for p in rel_dir.split(os.sep) if p and p != '.']
+    return any(p in TEST_DIR_NAMES or p.endswith('.tests') for p in parts)
 
 
 def analyze_file(file_path, ext, filename):
@@ -184,7 +201,7 @@ def analyze_file(file_path, ext, filename):
 # ---------------------------------------------------------------------------
 
 def scan_project():
-    by_service = defaultdict(lambda: {'code': 0, 'config': 0, 'doc': 0, 'comments': 0, 'blank': 0, 'files': 0, 'total': 0})
+    by_service = defaultdict(lambda: {'code': 0, 'test': 0, 'config': 0, 'doc': 0, 'comments': 0, 'blank': 0, 'files': 0, 'total': 0})
     by_category = defaultdict(lambda: {'files': 0, 'content': 0, 'comments': 0, 'blank': 0, 'total': 0})
     by_language = defaultdict(lambda: {'category': '', 'files': 0, 'content': 0, 'comments': 0, 'blank': 0, 'total': 0})
 
@@ -206,6 +223,9 @@ def scan_project():
             if not (category and lang):
                 continue
 
+            if category == 'Ren Kode' and is_test_file(rel_path, file):
+                category, lang = 'Tester', f'{lang} (tester)'
+
             file_path = os.path.join(current_root, file)
             tot, cnt, com, blk = analyze_file(file_path, ext, file)
 
@@ -216,6 +236,8 @@ def scan_project():
             s['blank'] += blk
             if category == 'Ren Kode':
                 s['code'] += cnt
+            elif category == 'Tester':
+                s['test'] += cnt
             elif category == 'Konfigurasjon':
                 s['config'] += cnt
             elif category == 'Dokumentasjon':
@@ -239,12 +261,13 @@ def scan_project():
     totals = {
         'files': sum(s['files'] for s in by_service.values()),
         'code_lines': sum(s['code'] for s in by_service.values()),
+        'test_lines': sum(s['test'] for s in by_service.values()),
         'config_lines': sum(s['config'] for s in by_service.values()),
         'doc_lines': sum(s['doc'] for s in by_service.values()),
         'comment_lines': sum(s['comments'] for s in by_service.values()),
         'blank_lines': sum(s['blank'] for s in by_service.values()),
     }
-    totals['total_lines'] = (totals['code_lines'] + totals['config_lines'] + totals['doc_lines']
+    totals['total_lines'] = (totals['code_lines'] + totals['test_lines'] + totals['config_lines'] + totals['doc_lines']
                               + totals['comment_lines'] + totals['blank_lines'])
 
     return {
@@ -423,7 +446,7 @@ def build_report(stats, history_entries, commit_activity, now, only_service=None
         pt = previous['totals']
         diffs = {k: totals[k] - pt.get(k, totals[k]) for k in totals}
         add('\n📈 ENDRING SIDEN FORRIGE MÅLING:', '### 📈 Endring siden forrige måling')
-        labels = [('files', 'Filer'), ('code_lines', 'Ren Kode'), ('config_lines', 'Konfigurasjon'),
+        labels = [('files', 'Filer'), ('code_lines', 'Ren Kode'), ('test_lines', 'Tester'), ('config_lines', 'Konfigurasjon'),
                   ('doc_lines', 'Dokumentasjon'), ('comment_lines', 'Kommentarer'), ('total_lines', 'Totalt (inkl. blanke)')]
         for key, label in labels:
             d = diffs[key]
@@ -448,37 +471,37 @@ def build_report(stats, history_entries, commit_activity, now, only_service=None
         md.append('')
 
     # --- Overordnet fordeling ---
-    add('\n🏷️ OVERORDNET FORDELING (KODE vs KONFIG vs DOK):', '## 🏷️ Overordnet Fordeling')
+    add('\n🏷️ OVERORDNET FORDELING (KODE vs TESTER vs KONFIG vs DOK):', '## 🏷️ Overordnet Fordeling')
     add('-' * 88, None)
     add(f"{'Hovedkategori':<22} | {'Filer':<6} | {'Innhold/Linjer':<14} | {'Kommentarer':<11} | {'Totalt':<8}", None)
     add('-' * 88, None)
     md.append('| Hovedkategori | Filer | Innhold/Linjer | Kommentarer | Blank | Totalt |')
     md.append('| :--- | :---: | :---: | :---: | :---: | :---: |')
-    for cat in ['Ren Kode', 'Konfigurasjon', 'Dokumentasjon']:
+    for cat in ['Ren Kode', 'Tester', 'Konfigurasjon', 'Dokumentasjon']:
         c = by_category.get(cat, {'files': 0, 'content': 0, 'comments': 0, 'blank': 0, 'total': 0})
         add(f"{cat:<22} | {c['files']:<6} | {c['content']:<14} | {c['comments']:<11} | {c['total']:<8}",
             f"| **{cat}** | {c['files']} | {c['content']} | {c['comments']} | {c['blank']} | {c['total']} |")
 
     # --- Per tjeneste, med trend-sparkline ---
     add('\n📁 FORDELING PER MIKROTJENESTE / PROSJEKT:', '\n## 📁 Fordeling per Mikrotjeneste / Prosjekt')
-    add('-' * 98, None)
-    add(f"{'Prosjekt / Mappe':<28} | {'Filer':<5} | {'Ren Kode':<8} | {'Konfig':<8} | {'Dok':<6} | {'Komm':<6} | {'Totalt':<8} | Trend", None)
-    add('-' * 98, None)
-    md.append('| Prosjekt / Mappe | Filer | Ren Kode | Konfigurasjon | Dokumentasjon | Kommentarer | Totalt | Trend |')
-    md.append('| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |')
+    add('-' * 108, None)
+    add(f"{'Prosjekt / Mappe':<28} | {'Filer':<5} | {'Ren Kode':<8} | {'Tester':<8} | {'Konfig':<8} | {'Dok':<6} | {'Komm':<6} | {'Totalt':<8} | Trend", None)
+    add('-' * 108, None)
+    md.append('| Prosjekt / Mappe | Filer | Ren Kode | Tester | Konfigurasjon | Dokumentasjon | Kommentarer | Totalt | Trend |')
+    md.append('| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |')
 
     for service in sorted(by_service.keys()):
         s = by_service[service]
         svc_series = [e['by_service'][service]['total'] for e in history_entries if service in e.get('by_service', {})]
         svc_series.append(s['total'])
         trend = sparkline(svc_series) if len(svc_series) >= 2 else '-'
-        add(f"{service:<28} | {s['files']:<5} | {s['code']:<8} | {s['config']:<8} | {s['doc']:<6} | {s['comments']:<6} | {s['total']:<8} | {trend}",
-            f"| `{service}` | {s['files']} | {s['code']} | {s['config']} | {s['doc']} | {s['comments']} | {s['total']} | {trend} |")
+        add(f"{service:<28} | {s['files']:<5} | {s['code']:<8} | {s['test']:<8} | {s['config']:<8} | {s['doc']:<6} | {s['comments']:<6} | {s['total']:<8} | {trend}",
+            f"| `{service}` | {s['files']} | {s['code']} | {s['test']} | {s['config']} | {s['doc']} | {s['comments']} | {s['total']} | {trend} |")
 
-    add('-' * 98, None)
-    add(f"{'TOTALT':<28} | {totals['files']:<5} | {totals['code_lines']:<8} | {totals['config_lines']:<8} | {totals['doc_lines']:<6} | {totals['comment_lines']:<6} | {totals['total_lines']:<8} |", None)
+    add('-' * 108, None)
+    add(f"{'TOTALT':<28} | {totals['files']:<5} | {totals['code_lines']:<8} | {totals['test_lines']:<8} | {totals['config_lines']:<8} | {totals['doc_lines']:<6} | {totals['comment_lines']:<6} | {totals['total_lines']:<8} |", None)
     add('=' * 88, None)
-    md.append(f"| **TOTALT** | **{totals['files']}** | **{totals['code_lines']}** | **{totals['config_lines']}** | **{totals['doc_lines']}** | **{totals['comment_lines']}** | **{totals['total_lines']}** | |\n")
+    md.append(f"| **TOTALT** | **{totals['files']}** | **{totals['code_lines']}** | **{totals['test_lines']}** | **{totals['config_lines']}** | **{totals['doc_lines']}** | **{totals['comment_lines']}** | **{totals['total_lines']}** | |\n")
 
     # --- Per språk/filtype ---
     add('\n💻 FORDELING PER SPRÅK / FILTYPE:', '## 💻 Fordeling per Språk / Filtype')
@@ -517,7 +540,7 @@ def build_report(stats, history_entries, commit_activity, now, only_service=None
         svc_series = [e['by_service'][only_service]['total'] for e in history_entries if only_service in e.get('by_service', {})]
         svc_series.append(s['total'])
         add(f'\n🔍 DYPDYKK: {only_service}', None)
-        add(f'  Filer: {s["files"]}  Kode: {s["code"]}  Konfig: {s["config"]}  Dok: {s["doc"]}  Kommentarer: {s["comments"]}  Totalt: {s["total"]}', None)
+        add(f'  Filer: {s["files"]}  Kode: {s["code"]}  Tester: {s["test"]}  Konfig: {s["config"]}  Dok: {s["doc"]}  Kommentarer: {s["comments"]}  Totalt: {s["total"]}', None)
         add(f'  Trend: {sparkline(svc_series)}  ({svc_series[0]} → {svc_series[-1]})' if len(svc_series) >= 2 else '  (Ikke nok historikk for trend ennå)', None)
         svc_commits = get_commit_activity([only_service], days=14)
         svc_commit_values = [c for _, c in svc_commits]

@@ -165,10 +165,9 @@ en mulig finpuss senere, ikke en regresjon fra i dag.
 ## 6. Rolle: normalisert til små bokstaver ved kilden
 
 `lib/models/types.ts` definerer `UserRoleType = "admin" | "user"` og en delt `normalizeRole()`-funksjon.
-Backend sender i dag rollen med stor forbokstav (`"Admin"`/`"User"`) tre steder — JWT `role`-claimet,
-`/account/me`-responsen, og Google-callbackens `role`-query-param (se `BACKEND_REQUIREMENTS.md` i repo-roten
-for planen om å flytte normaliseringen dit). Frontend normaliserer defensivt til små bokstaver i alle fire
-punktene der en rolle kommer inn i appens tilstand, slik at resten av kodebasen kan stole på at `session.role`
+Backend sender alltid rollen med små bokstaver (`"admin"`/`"user"`) på de tre stedene den forlater Auth API — JWT
+`role`-claimet, `/account/me`-responsen, og Google-callbackens `role`-query-param. Frontend normaliserer
+likevel defensivt til små bokstaver i alle fire punktene der en rolle kommer inn i appens tilstand, slik at resten av kodebasen kan stole på at `session.role`
 alltid er `"admin"` eller `"user"`:
 
 - `sessionManager.getUserRole(token)` — dekoder JWT-claimet.

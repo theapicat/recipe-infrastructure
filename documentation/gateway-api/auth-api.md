@@ -40,7 +40,7 @@ OpenIddict sitt token-endepunkt (`password`- og `refresh_token`-grants). Konsume
 
 ### `AdminController` — `api/auth/admin`
 
-Alle handlinger krever `[Authorize(Roles = "Admin")]` — altså `Admin`-rolleclaim i selve JWT-tokenet (uavhengig av gatewayens `AdminUser`-policy, som gjelder core-cluster-ruter, ikke denne).
+Alle handlinger krever `[Authorize(Roles = "admin")]` — altså `admin`-rolleclaim (små bokstaver) i selve JWT-tokenet (uavhengig av gatewayens `AdminUser`-policy, som gjelder core-cluster-ruter, ikke denne).
 
 Ruter: `GET /users`, `GET /users/{id:guid}`, `PUT /users`, `POST /users/lock`, `POST /users/unlock`, `POST /users/confirm-email`, `POST /users/resend-confirmation`, `POST /users/reset-password-request`, `POST /users/delete`, `POST /users/delete-and-blacklist`, `GET /blacklist`, `POST /blacklist`, `DELETE /blacklist/{id:guid}`, `POST /send-email` — alle under `api/auth/admin/...`.
 
@@ -63,5 +63,5 @@ Dette er en nettleser-redirect-flyt, ikke et fetch/XHR-kall fra frontend:
 `API/appsettings.json` / `appsettings.Development.json`, seksjon `JWT`:
 
 - `JWT:SecretKey` — den symmetriske signeringsnøkkelen. **Denne må være identisk med `Jwt:Key` i `recipe-gateway-api`** sin config, siden begge validerer samme type token symmetrisk (se `gateway-jwt-audit-notes.md` i gateway-repoet for historikk på hvorfor dette har driftet ut av sync før).
-- `JWT:Issuer` (`recipe-auth-app`) og `JWT:Audience` (`recipe-frontend`) — må matche `Jwt:Issuer`/`Jwt:Audience` i gatewayen.
+- `JWT:Issuer` (`http://recipe-auth-app/`) og `JWT:Audience` (`recipe-frontend`) — må matche `Jwt:Issuer`/`Jwt:Audience` i gatewayen **bokstavelig**. Issuer er en absolutt URI skrevet på normalisert form (med avsluttende `/`). Auth API setter den fast med OpenIddict `SetIssuer` (og kaster ved oppstart hvis verdien er feilskrevet); uten det utleder OpenIddict `iss` fra forespørselens base-URL (`http://localhost:5000/` via gatewayen, `:5001` direkte), og gatewayen og Core avviser alle tokens med `401 The issuer … is invalid`.
 - `AppSettings:FrontendUrl` — ikke gateway-relevant direkte, men brukes til redirect-lenker (Google-callback, passordtilbakestilling) som til syvende og sist går til frontend.
