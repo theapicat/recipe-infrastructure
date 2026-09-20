@@ -29,6 +29,10 @@ IGNORE_PATH_PREFIXES = {
     os.path.join('recipe-infrastructure', 'documentation'),
     # Genererte kjørerapporter fra API-testene (e-postsjekklister), ikke kode.
     os.path.join('recipe-infrastructure', 'api-tests', 'reports'),
+    # Seed-data for Core (SQL-innsettinger av ingredienser, næringsstoffer osv., nesten 100 000 linjer). Det er data, ikke
+    # kode, og ville ellers ha dominert statistikken. Tabell-, spørrings- og kommandoscriptene (Persistence/Scripts/*.sql)
+    # ligger utenfor denne mappen og telles fortsatt som SQL Scripts.
+    os.path.join('recipe-core-api', 'Persistence', 'Scripts', 'SeedData'),
 }
 
 # Eksakte filnavn uten filending
