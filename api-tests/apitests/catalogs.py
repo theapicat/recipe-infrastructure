@@ -1,6 +1,7 @@
 """Beskrivelse av Core sine seks admin-styrte katalogressurser, brukt av tilgangsmatrisen og CRUD-testene."""
 from __future__ import annotations
 
+import hashlib
 import uuid
 from dataclasses import dataclass
 from typing import Callable
@@ -13,7 +14,7 @@ from .models.core import Allergen, IngredientCategory, RecipeCategory, SearchKey
 class CatalogSpec:
     resource: str
     model: type[ApiModel]
-    build: Callable[[str, str | None], dict]  # (navn, parent_id) -> payload (klienten velger selv Id)
+    build: Callable[[str, str | None], dict]  # (navn, parent_id) -> payload uten id (serveren tildeler id)
     modify: Callable[[dict], dict]  # payload -> endret payload (brukes i PUT)
     parent: str | None = None  # ressursen denne peker på (fremmednøkkel), som må finnes først
 
@@ -31,7 +32,7 @@ def new_id() -> str:
 
 
 def _named(name: str, parent_id: str | None = None) -> dict:
-    return {"id": new_id(), "name": name}
+    return {"name": name}
 
 
 def _rename(payload: dict) -> dict:
@@ -39,11 +40,13 @@ def _rename(payload: dict) -> dict:
 
 
 def _unit(name: str, parent_id: str | None) -> dict:
-    return {"id": new_id(), "name": name, "abbreviation": "atu", "unitTypeId": parent_id, "baseUnitRatio": 1.5}
+    # Forkortelsen er også unik, og radene slettes først ved slutten av kjøringen: den utledes derfor fra navnet
+    abbreviation = "a" + hashlib.sha1(name.encode()).hexdigest()[:6]
+    return {"name": name, "abbreviation": abbreviation, "unitTypeId": parent_id, "baseUnitRatio": 1.5}
 
 
 def _modify_unit(payload: dict) -> dict:
-    return {**payload, "name": payload["name"] + "-endret", "abbreviation": "atu2", "baseUnitRatio": 2.0}
+    return {**payload, "name": payload["name"] + "-endret", "abbreviation": payload["abbreviation"] + "x", "baseUnitRatio": 2.0}
 
 
 # Rekkefølgen er viktig for opprydding: rader som peker på andre (units) må slettes før det de peker på (unit-types).
