@@ -2,12 +2,13 @@
 
 ---
 
-Per 2026-09-19. Sjekk mot faktisk kode ved tvil.
+Per 2026-09-23. Sjekk mot faktisk kode ved tvil.
 
 ## 1. Oppsett
 
 MassTransit + RabbitMQ brukes til asynkron kommunikasjon med søstertjenester
-(`recipe-scraper-service`, `recipe-notification-service`) — aldri direkte HTTP mellom tjenestene.
+(`recipe-scraper-service`, `recipe-notification-service`, `recipe-auth-api`) — aldri direkte HTTP mellom
+tjenestene.
 
 Registrering: `Application/Extensions/MassTransitExtensions.cs` (`AddMassTransitServices`), kalt fra
 `ApplicationExtensions.AddApplicationServices`. Config leses fra `RabbitMQ:*`-seksjonen i appsettings,
@@ -26,9 +27,26 @@ med lokale fallback-verdier hvis nøklene mangler:
 ### Konfigurasjon som må holdes i sync
 
 RabbitMQ-tilkoblingsverdiene (`Host`/`Port`/`VirtualHost`/`Username`/`Password`) må stemme med samme
-RabbitMQ-instans som `recipe-scraper-service` og `recipe-notification-service` kobler seg til. Ingen
-egen sync-tabell er skrevet ennå siden kun én kontrakt er i bruk (se §3) — utvid denne seksjonen når flere
-meldingstyper krysser tjenestegrenser.
+RabbitMQ-instans som `recipe-scraper-service`, `recipe-notification-service` og `recipe-auth-api` kobler
+seg til.
+
+### ⚠️ Regel: hver tjeneste MÅ sette et eget `Endpoint`-navn på hver `AddConsumer<T>()`
+
+Bekreftet med en ekte feil 2026-09-23 (se §4): MassTransits standard endepunkt-/kønavngiving bruker kun
+forbrukerens **klassenavn uten navnerom** (`AccountDeletedByUserConsumer` → kø `"AccountDeletedByUser"`).
+Hvis to tjenester begge har en forbrukerklasse med samme navn for samme hendelse — noe som er naturlig når
+man bevisst kopierer navnekonvensjonen fra søstertjenesten, slik denne kontrakten gjorde — havner begge i
+**samme kø** og konkurrerer om meldingene (hver hendelse går da til bare én av de to tjenestene, tilfeldig)
+i stedet for at hver tjeneste får sin egen kø bundet til samme utveksling (fan-out, det man faktisk vil ha).
+Verifisert live mot det delte dev-RabbitMQ-oppsettet: en midlertidig instans av denne tjenesten uten eget
+endepunktnavn viste seg som forbruker #2 på `recipe-notification-service` sin ekte `AccountDeletedByUser`-kø.
+
+**Løsning, obligatorisk for enhver ny `AddConsumer<T>()` i dette repoet:**
+```csharp
+x.AddConsumer<AccountDeletedByUserConsumer>().Endpoint(e => e.Name = "CoreApi-AccountDeletedByUser");
+```
+Prefiks kønavnet med tjenestenavnet (`CoreApi-...`) slik at det aldri kan kollidere med en annen
+tjenestes kø for samme hendelse, uansett hva forbrukerklassen heter der.
 
 ---
 
@@ -57,14 +75,14 @@ ble innført.
 Kun `Contracts` skal sammenlignes mot andre mikrotjenesters kontrakter — MassTransit ruter meldinger på
 fullt kvalifisert namespace, så et avvik mellom to repoer får meldinger til å forsvinne stille.
 
-### `Contracts.Event.ContactFormSubmittedEvent`
+### `Contracts.Events.UserActions.ContactFormSubmittedEvent`
 
 Publisert fra `SendContactFormCommandHandler` (se [`03-cqrs-and-mediatr.md`](03-cqrs-and-mediatr.md)) når
 noen sender inn kontaktskjemaet. Konsumeres av `recipe-notification-service` (utløser e-postutsendelse) —
 ingen konsument finnes i dette repoet.
 
 ```csharp
-namespace Contracts.Event;
+namespace Contracts.Events.UserActions;
 
 public record ContactFormSubmittedEvent
 {
@@ -80,15 +98,41 @@ public record ContactFormSubmittedEvent
 
 ## 4. Konsumenter
 
-**⚠️ Planlagt — ikke bygget:** ingen `IConsumer<T>`-klasser finnes i dette repoet ennå. Når den første
-konsumenten bygges (f.eks. for at scraper-tjenesten skal spørre core-api om en ingrediens finnes i
-katalogen), er den naturlige plasseringen `Application/Messaging/Consumers/`, siden `Application` etter
-sammenslåingen med `Infrastructure` (se [`01-architecture-and-setup.md`](01-architecture-and-setup.md))
-har direkte tilgang til `IMediator` uten noen ekstra prosjektreferanse-omvei.
+### Kontosletting (`recipe-auth-api` → `recipe-core-api`, 2026-09-23)
 
-Merk forskjellen på mønster: `ContactFormSubmittedEvent` er fire-and-forget (`Publish`). En fremtidig
-"finnes denne ingrediensen"-forespørsel fra scraper-tjenesten er trolig **request/response**
-(`IRequestClient`/`ConsumeContext.RespondAsync`), ikke samme mønster — ikke besluttet i detalj ennå.
+Denne tjenestens **første** innkommende forbruker (før dette var `MassTransitExtensions` kun oppsett for
+publisering). `recipe-auth-api` sletter en konto på fire forskjellige måter (bruker sletter selv, admin
+sletter, admin sletter + svartelister, eller en Quartz-jobb for 30-dagers ubekreftet e-post/1 års
+inaktivitet), og publiserer én hendelse per variant — alle fire har samme kjernefelt
+(`UserId`/`Email`/`Name`/`DeletedAt`), pluss ett ekstra felt hver (`DeletionReason` / ingen / `Reason`).
+
+Kontraktene (kopiert byte-for-byte fra `recipe-auth-api/Contracts/Events/`, se §3-regelen om at kun
+`Contracts` sammenlignes på tvers av repoer):
+
+| Hendelse | Navnerom | Ekstra felt |
+| --- | --- | --- |
+| `UserAccountDeletedByUserEvent` | `Contracts.Events.UserActions` | — |
+| `UserAccountDeletedBySystemEvent` | `Contracts.Events.SystemActions` | `string DeletionReason` |
+| `UserAccountDeletedByAdminEvent` | `Contracts.Events.AdminActions` | — (alle felt `required`) |
+| `UserDeletedAndBlacklistedByAdminEvent` | `Contracts.Events.AdminActions` | `string? Reason` |
+
+Alle fire har en tynn `IConsumer<T>` i `Application/Messaging/Consumers/{UserActions,SystemActions,AdminActions}/`
+som bare sender `Application.MediatR.Users.DeleteAllUserDataCommand(UserId)` videre via `IMediator` -
+selve slettingen (`Persistence.Interfaces.IUserDataEraser`, i én transaksjon: oppskrifter **før** ubekreftede
+ingredienser, siden `recipe_ingredient.unconfirmed_ingredient_id` har `ON DELETE RESTRICT`) er delt mellom
+alle fire, siden det ikke spiller noen rolle *hvorfor* kontoen ble slettet. Slettingen dekker i dag
+oppskrifter og ubekreftede ingredienser - utvides etter hvert som måltidsplan/handleliste/produkter bygges
+(se `todo.md`), ikke en liste som byttes ut.
+
+Hver `AddConsumer<T>()` har et eget `Endpoint`-navn (`CoreApi-<HendelseUtenPrefiks>`) — se
+**⚠️-regelen i §1**, oppdaget som en ekte kollisjon med `recipe-notification-service` sin forbruker for
+akkurat disse fire hendelsene under live-verifisering.
+
+### Fremtidige konsumenter
+
+Merk forskjellen på mønster: `ContactFormSubmittedEvent` og kontoslettings-hendelsene er fire-and-forget
+(`Publish`/`Consume`). En fremtidig "finnes denne ingrediensen"-forespørsel fra scraper-tjenesten er trolig
+**request/response** (`IRequestClient`/`ConsumeContext.RespondAsync`) i stedet — ikke besluttet i detalj ennå.
 
 ---
 

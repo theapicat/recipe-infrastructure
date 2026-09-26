@@ -1,8 +1,88 @@
-# Konsistenssjekk på tvers av tjenester (2026-09-14, oppdatert 2026-09-20)
+# Konsistenssjekk på tvers av tjenester (2026-09-14, oppdatert 2026-09-26)
 
 Gjennomgang av Dockerfiles, Serilog-oppsett, MassTransit-contracts, dokumentasjonsspeil og
-`appsettings*.json` i alle `.NET`-tjenestene. Seksjonene under «2026-09-19» er nyest; resten er fra
-14. september.
+`appsettings*.json` i alle `.NET`-tjenestene. Seksjonen «2026-09-26» er nyest; «2026-09-19» og
+«2026-09-14» under er historikk (statusen der er oppdatert der den har endret seg).
+
+---
+
+# 2026-09-26
+
+Full revisjon (alle fem punktene) etter en uke med arbeid i `recipe-core-api` (P1/P2, kontosletting, `dimension`, seed-opprydding,
+allergener). `recipe-scraper-service` er holdt utenfor som før. API-testsuiten er oppdatert og kjørt grønn mot den levende stacken:
+**576 bestått, 2 hoppet over** via gatewayen, like mange med `--direct`, og 65 med `--read-only`.
+
+## ✅ Løst / bekreftet
+
+* **Kontaktskjemaet leverer e-post (var 🔴).** Core flyttet `ContactFormSubmittedEvent` til `Contracts.Events.UserActions` 2026-09-24, nå
+  byte-identisk i core, notification og auth. Bekreftet ende-til-ende 2026-09-26: hver innsending gir varsel til admin («[Kontaktskjema] …»)
+  og kvittering til avsender («Takk for din henvendelse: …») i Mailpit; køen `ContactFormSubmitted` har 1 consumer og tom `_error`-kø.
+  Begge e-postene står nå i testsuitens e-postsjekkliste. **Men se 🔴 under: valideringen mangler fortsatt.**
+* **Kontosletting rydder brukerdata i Core** (bygget 2026-09-23). Køene `CoreApi-AccountDeletedByUser`, `CoreApi-AccountDeletedBySystem`,
+  `CoreApi-UserAccountDeletedByAdmin` og `CoreApi-UserDeletedAndBlacklistedByAdmin` har hver 1 consumer, 0 meldinger og ingen `_error`-kø,
+  etter en testkjøring som slettet ~50 testbrukere. Core bruker eksplisitte kønavn (`CoreApi-…`), så den deler ikke kø med notification.
+* **Verifisert gjennom gatewayen** (TECHNICAL_DEBT #6), dekket av testsuiten via `:5000`: URL-enkodede næringsstoff-id-er (`Vit C`,
+  `Mono+Di` osv., alle 57), gjentatt `excludeAllergenId`, og `Location` ved `201`. Se 🟡 om verten i `Location`.
+* **`CORE_5XX_ON_CLIENT_ERROR` (var 🟡) er i praksis løst:** ukjente fremmednøkler gir nå spesifikke `400` (ingredienser, enheter), en
+  katalograd eller ingrediens i bruk gir `409` med melding, og ukjent id på `DELETE` gir `404`. Klienten kan ikke lenger sende id-er ved
+  opprettelse. Gjenstår som dokumentert avvik: `PUT` på en ukjent katalog-id gir `200` uten å gjøre noe.
+* **JWT** er identisk i alle seks kildene (auth `appsettings` ×2, core Development, gateway Development, gatewayens `.env` og
+  compose-fallback): issuer `http://recipe-auth-app/`, audience `recipe-frontend`, samme nøkkel (sammenlignet som hash). **Delt JWT-oppsett:**
+  auth signerer (`JWT:SecretKey`), gateway og core validerer hver for seg (`Jwt:Key`/`Issuer`/`Audience`); alle tre må endres samtidig,
+  ellers gir hvert kall `401` uten annen feilmelding. Utenfor Development må verdiene komme fra miljøvariabler (`Jwt__Key` osv.), siden
+  gatewayens og cores base-`appsettings.json` ikke har noen `Jwt`-blokk.
+* **Dockerfiles:** auth, gateway og notification følger fortsatt samme mønster (`aspnet:10.0`/`sdk:10.0`, `base/build/publish/final`).
+  Core og webapp har ingen Dockerfile ennå (dockerisering er parkert).
+* **Serilog:** alle fem tjenestene har identisk struktur; `Properties.Application` = repo-navnet; Seq `recipe-seq:80` i base og
+  `localhost:5341` i Development.
+* **RabbitMQ-blokken** er identisk i auth, core og notification (base og Development), og passordet stemmer med infra-`.env`.
+  Postgres-strengene i Development stemmer med `.env` (auth `5432`, core `5433`).
+* **Dokumentasjonsspeilet** er kopiert på nytt: `core-api/` (01–07 endret, `08-api-reference.md` ny) og `webapp/` (01–09 endret,
+  `10-backlog.md` ny). Alle sju speil verifisert med `diff -rq` (tomt resultat).
+* **Alle 19 hendelsene mellom auth og notification** (utenom den døde kontaktskjema-kopien i auth) har samme namespace i begge repoene, og alle har en consumer.
+
+## 🔴 Kontaktskjemaet er et åpent e-postrelé nå som det virker
+
+Feil 2 fra 2026-09-19 (under) står uendret, men er ikke lenger teoretisk: e-postene går faktisk ut. `ContactFormRequest` har ingen
+valideringsattributter, `SubmittedAt` kommer fra klienten, det finnes ingen rate limiting i gateway eller core, og malene
+(`ContactFormAdminNotification.html`, `ContactFormUserReceipt.html`) skriver `{{ name }}`/`{{ subject }}`/`{{ message }}` uten
+`html.escape`. **Konsekvens:** hvem som helst kan uten innlogging få Kjøkkenhylla sin avsenderadresse til å sende en kvittering med
+fritt valgt emne og HTML-innhold til en hvilken som helst adresse, så mange ganger de vil. I dev er det ufarlig, men det må rettes
+før noe settes i drift. Ikke rørt (kontaktskjema-koden endres bare på uttrykkelig beskjed).
+
+## 🟡 Nye funn
+
+* **`PASSWORD_CHANGED_NULLABILITY`:** `PasswordChangedEvent.IpAddress`/`DeviceInfo` er `string?` i auth, men `string` i notification.
+  Samme namespace og type, så meldingen kommer fram; `null` blir `null` i notification og malen skriver tom tekst. Samme type avvik som
+  `UserDeletedAndBlacklistedByAdminEvent.Reason` (`string?` i auth og core, `string` i notification, TECHNICAL_DEBT #3).
+* **Filnavn ≠ typenavn i to repoer, ikke bare auth:** `AccountDeletedByUserEvent.cs` og `AccountDeletedBySystemEvent.cs` inneholder
+  `UserAccountDeletedByUserEvent`/`UserAccountDeletedBySystemEvent` i både auth og notification (core har riktige filnavn). Kun kosmetisk.
+* **Død kopi:** auth har `ContactFormSubmittedEvent` uten publisher eller consumer.
+* **Kønavn:** notification (22 consumers) og auth (`InvalidEmailDetectedConsumer`) bruker MassTransit sine standardnavn (`PasswordChanged`,
+  `AccountDeletedByUser` …); bare core setter egne. En ny tjeneste med en consumer med samme klassenavn ville stille delt køen
+  (TECHNICAL_DEBT #2).
+* **Foreldreløs kø:** `UserAccountDeleted` (0 consumers, 0 meldinger) er en rest fra et eldre navn. Ufarlig; kan slettes i RabbitMQ-UI-et.
+* **`Location` via gatewayen peker på Core sin egen vert:** `POST http://localhost:5000/api/admin/allergens` svarer
+  `Location: http://localhost:5002/api/admin/allergens/<id>`. Gatewayen skriver ikke om headeren. Frontend bruker `id` fra kroppen, så
+  ingenting brekker, men en klient som følger `Location` går forbi gatewayen. Rettes eventuelt i gatewayen (YARP-transform) eller ved å
+  la core lage en relativ `Location`.
+* **`usageCount` i skrivesvar er alltid 0 (core):** svaret på `POST`/`PUT` av en ingrediens og på `approve` setter `usageCount = 0`, fordi
+  tallet bare regnes ved lesing. Etter `approve` gir `GET` `1` (den løste ubekreftede raden peker på ingrediensen). Testene tar høyde for det.
+* **Seedede søkeord er ikke systemrader (core):** `seed_31` (55 synonymer) og søkeordene i `seed_11`, `seed_13`, `seed_20` settes inn uten
+  `is_system`, så de kan slettes når de ikke er i bruk. `08-api-reference.md` sier fortsatt at `search-keywords` «starter tom».
+* **Utdatert i core sin `08-api-reference.md`:** «Per 2026-09-20»; nederst står «opprydding når en konto slettes» og «allergen-tilordning»
+  som ikke bygget (begge finnes nå), og næringsavsnittet sier at enhetstypene gjenkjennes på navnet (nå `dimension`).
+* **Ukommitterte rettelser:** fiksene fra 2026-09-20 (fast `SetIssuer`, `role` med små bokstaver i gateway-policyen, oppdatert
+  gateway-dokumentasjon og compose-fallback) ligger fortsatt som ukommitterte endringer i `recipe-auth-api` og `recipe-gateway-api`. De
+  kjørende tjenestene bruker dem, men de finnes ikke i git ennå.
+
+## 🟡 Fortsatt åpne fra tidligere (sjekket 2026-09-26, uendret)
+
+* `RESET_PASSWORD_REVEALS_USERS`, `REGISTER_JSON_NOT_BOUND` (`[Consumes(... "application/json")]` + `[FromForm]`),
+  `AUTH_HEALTH_SERVICE_NAME` (`/api/auth/health` gir fortsatt `service: "API"`).
+* `recipe-scraper-cache` er fortsatt den containeren som holder `localhost:27017`, og `recipe-mongo-db` er ikke koblet til noe nettverk
+  (se under).
+* Cores base-`appsettings.json` blander Docker-navn og `localhost` (parkert til core dockeriseres).
 
 ---
 
@@ -66,7 +146,7 @@ gatewayen eller direkte, og både gateway og Core godtar det. Auth 119/119 og Co
 gatewayen og direkte mot Core, og vanlig bruker får fortsatt 403. Øvrige forekomster av «Admin»/«User» som rollenavn
 er gjennomgått (kode, kommentarer og docs i alle repoer); se «Løst» øverst.
 
-**🟡 `CORE_5XX_ON_CLIENT_ERROR`.** Core svarer `500` med Npgsql-unntakstekst i kroppen på: dupliserte id-er
+**✅ (i praksis) `CORE_5XX_ON_CLIENT_ERROR`** — se 2026-09-26. Core svarer `500` med Npgsql-unntakstekst i kroppen på: dupliserte id-er
 (`23505`), ugyldig fremmednøkkel (`23503`, f.eks. en unit med ukjent `unitTypeId`) og sletting av en rad andre rader
 peker på (`23503`). Skal være 4xx (400/409) og skal ikke lekke databasedetaljer. Dessuten: `PUT` på ukjent id gir
 `200` uten å gjøre noe, og duplikate *navn* aksepteres (ingen unikhetsregel) — dokumentert oppførsel, ikke testet som feil.
@@ -102,7 +182,7 @@ dev (`source-data/` lastes ikke), så det finnes ingen seedet referansedata å l
 oppskrifter, måltidsplan og handleliste har ingen endepunkter ennå. De to reelle blokkeringene (`TOKEN_ISSUER` og
 `GATEWAY_ADMIN_ROLE_CASING`) er rettet 2026-09-20, og Core-endepunktene testes nå via gatewayen som en ekte bruker.
 
-## 🔴 Kontaktskjemaet: meldinger forsvinner stille (ikke endret, kun undersøkt)
+## ✅ Kontaktskjemaet: meldinger forsvant stille (Feil 1 rettet i core 2026-09-24, verifisert 2026-09-26; Feil 2 er fortsatt åpen, se 🔴 øverst)
 
 **Flyt (verifisert i koden):** `ContactForm.tsx` → Next-rute `app/api/public/contact/route.ts` →
 gateway `POST /api/public/contact-form` (`public-route`, ingen policy, ingen fallback-policy) →
@@ -118,7 +198,7 @@ webapp-ruten, kontrolleren, kommandoen, eventet eller prosessoren. Eventet har k
 gateway/core: `200` uten header, med `Bearer undefined` og med `Bearer `; `401` kun på `[Authorize]`.
 Ren kosmetikk: `agentExternal.post` bør utelate headeren når token mangler, slik `postForm` allerede gjør.
 
-**Feil 1 — 🔴 namespace-uoverensstemmelse (bekreftet mot kjørende RabbitMQ):**
+**Feil 1 — ✅ (var 🔴) namespace-uoverensstemmelse (bekreftet mot kjørende RabbitMQ; rettet 2026-09-24):**
 
 | | Namespace | Exchange |
 | --- | --- | --- |
@@ -234,7 +314,9 @@ som peker på riktig repo, men under feil konto-URL. Kan rettes med `git remote 
 https://github.com/theapicat/<repo>.git` i de to repoene den dagen brukeren ønsker det; ingen
 hast.
 
-## 🟡 Pending: `recipe-core-api` og `recipe-scraper-service` er begge tidlig i utviklingen
+## 🟢 Utdatert (historikk): `recipe-core-api` og `recipe-scraper-service` er begge tidlig i utviklingen
+
+*2026-09-26: core-api har nå kataloger, ingredienser, oppskrifter og kontosletting, og kontaktskjemaets namespace er rettet. Avsnittet står som historikk.*
 
 Bruker har bekreftet: `recipe-core-api` har foreløpig kun kontaktskjema-funksjonaliteten
 implementert (resten av kjernedomenet — oppskrifter, måltidsplaner, m.m. — er ikke påbegynt),

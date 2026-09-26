@@ -47,6 +47,12 @@ rutenivå for uniform bredde, vertikal polstring (`py`) og laste-indikator.
 - `MainContainer` — statisk ramme, standard bredde `lg`.
 - `AsyncMainContainer` — som over, men med innebygd `Loader` (`color="sage" type="dots"`) når `loading=true`.
 
+**Laste-tilstand og Suspense:** ikke legg `<Suspense>` i enkeltsider. Bruk segmentets `loading.tsx` (f.eks.
+`app/admin/loading.tsx`, som dekker alle admin-sider) — Next pakker da siden i en Suspense-grense automatisk. Data som
+lastes i selve klientkomponenten (`agentInternal` + `useEffect`) har egen laste-tilstand (`Loader` i panelet). Unngå
+`useSearchParams` i sider der det ikke er nødvendig — det er det som tvinger frem en `<Suspense>` rundt siden
+(derfor holder katalogsiden fanevalget i lokal state).
+
 **`FormContext.ts`** — Mantines `createFormContext` for en type-sikker skjemakontekst:
 
 ```tsx
@@ -66,6 +72,17 @@ Dette lar underkomponenter (som `FormField`) hente verdier/feilmeldinger/endring
 | Nullstillingsknapp | Ingen                                   | Valgfri `onReset`-knapp                            |
 | Bekreftelsesmodal  | Nei                                     | Ja (`confirmTitle`, `confirmMessage`)              |
 | Feilmelding        | Rød `Alert` øverst                      | Rød `Alert` øverst                                 |
+
+Begge har en **`bare`**-prop: uten `Paper`-ramme og tittel, for bruk inne i en `Modal` som allerede har sin egen tittel
+(feltene, feilmeldingen, knappene og bekreftelsesdialogen er uendret). Brukes av katalogskjemaene
+(`components/admin/catalog/`), som også er et godt eksempel på skjemaer i modaler.
+
+**`FormField`** (`components/forms/common/FormField.tsx`) støtter `type`: `text` (standard), `password`, `email`,
+`textarea`, **`select`** (med `data`) og **`number`** (med `min`, `max`, `decimalScale`). Tallfeltet bruker norsk
+desimalkomma (punktum aksepteres ved inntasting), avviser negative tall og har ingen +/-knapper. Samme oppsett
+deles med tallfelt utenfor skjemaer (f.eks. filtre) via `norwegianNumberProps` (`components/forms/common/numberInputProps.ts`). `extra` tar en
+`ReactNode` under feltet — brukt til hjelpetekster (f.eks. «1 dl = 100 ml»). Trenger et skjema en ny felttype, legges den
+til her (ikke som en engangsløsning i skjemaet).
 
 ### A.3 Steg-for-steg: nytt skjema
 
@@ -148,7 +165,7 @@ export const ProfileEditForm = ({ initialData }: { initialData: ProfileFormValue
 
 ```tsx
 import { AsyncMainContainer } from "@/components/containers/MainContainer";
-import { ProfileEditForm } from "@/components/forms/account/ProfileEditForm";
+import { ProfileEditForm } from "@/components/forms/auth/ProfileEditForm";
 
 export default async function ProfilePage() {
   const initialData = { firstName: "Ola", lastName: "Nordmann" };
@@ -164,11 +181,12 @@ export default async function ProfilePage() {
 
 1. Klientkomponent (`*Form.tsx`) kaller interne route handlers via `agentInternal` (f.eks.
    `PUT /api/auth/updateProfile`).
-2. Route handler ekstraherer session/cookies og videresender kallet til Gatewayen.
+2. Route handler (bygget med `apiRoute`, se [04](./04-api-integration-and-data-models.md#7-mal-slik-legger-du-til-et-nytt-backend-endepunkt))
+   videresender kallet til Gatewayen via `agentExternal`, som legger på token fra sesjonscookien.
 3. Gatewayen (YARP) validerer JWT lokalt, renser headers, injiserer `X-User-Id`, ruter videre til
    `recipe-authentication-api` (5001) eller `recipe-core-api` (5002).
-4. Svaret returneres samme vei tilbake, hvor `errorMessage` i `CreateFormContainer`/`EditFormContainer`
-   oppdateres automatisk ved feil.
+4. Svaret returneres samme vei tilbake som en `HttpResponse<T>`-konvolutt; skjemaet leser `message` og setter
+   `errorMessage` i `CreateFormContainer`/`EditFormContainer` ved feil.
 
 Se [04 – API-integrasjon](./04-api-integration-and-data-models.md) for det tekniske laget under dette.
 
@@ -273,3 +291,57 @@ Utviklet med hensyn til nedsatt fargesyn (deuteranopi, protanopi):
 - **E-postmaler** (i `recipe-notification-service`, separat repo) oversetter Mantine-temaet til inline CSS:
   header-banner `#2a3e30` med hvit logo, bakgrunn `#f7f6f2`, kortflate `#ffffff` med border `#e2e5df`,
   knapper `background-color:#4a6b53; color:#fff; border-radius:8px`.
+
+### B.7 Tekstmarkering og markør
+
+Reglene ligger **ett sted** — `app/globals.css` — og gjelder hele appen. Ikke gjenta dem per komponent.
+
+- **Tekst kan ikke markeres.** `user-select: none` på hele dokumentet: markering av kort, knapper, lenker, tabeller og vanlig
+  tekst er mer forstyrrende enn nyttig.
+- **Unntak, alltid markerbart:** skjemafelt (`input`, `textarea`, `select`, `contenteditable`). Det er ikke valgfritt —
+  Safari blokkerer tasting i felt som har `user-select: none`.
+- **Unntak, bevisst opt-in:** legg klassen **`selectable`** på et område der brukeren trolig vil kopiere tekst
+  (f.eks. en e-postadresse eller id i en admin-tabell, oppskriftsinstruksjoner, juridiske tekster). Bruk den bare der det er
+  et bevisst valg — standarden er at ingenting kan markeres. Ingen eksisterende sider bruker den ennå; se
+  [10](./10-backlog.md).
+- **Markøren er en vanlig pil over tekst.** Pekefinger (`cursor: pointer`) vises kun på interaktive elementer: lenker,
+  knapper, faner, menyvalg, `label[for]`, avkrysning/radio. Mantine setter allerede pointer/not-allowed på sine egne
+  komponenter; `globals.css` dekker rene ARIA-roller og native elementer uten å overstyre deaktiverte. Tekstfelt beholder
+  tekstmarkøren (I-bjelke) fra nettleseren.
+
+### B.8 Lange lister og paginering
+
+Alle store tabeller (`CatalogTable`, `IngredientTable`) bruker de samme byggeklossene i `components/common/`:
+`usePagedItems` (state, klemming av side, sidestørrelse) og `TablePagination`.
+
+- **Sidevelger både over og under tabellen.** Øverst: sammendrag («Viser 1–50 av 1 565»), valg av sidestørrelse
+  (**25 / 50 / 100 per side**) og sidevelgeren. Nederst: kun sidevelgeren (ingen duplikat av sammendraget). Lister som
+  ikke fyller den minste sidestørrelsen (≤ 25 rader) får ingen paginering i det hele tatt.
+- **Bytte av side hopper opp til toppen av tabellen** (kun når den er scrollet ut av syne). Uten dette blir man liggende
+  nederst på den nye siden etter å ha trykket «neste» i bunnen. `usePagedItems` gir `containerProps` som settes på
+  elementet som omslutter tabell og sidevelgere, og `goToPage` (ikke `setPage` direkte) skal brukes ved sidebytte.
+- **Endring av sidestørrelse nullstiller til side 1.** Filtre som gir færre treff klemmer siden til et gyldig område.
+- **Bevisst valgt bort: lister som fyller høyden på vinduet** (tabell med egen scrolling). Det ødelegger på mobil, zoom og
+  delte vinduer, skjuler rader uforutsigbart, og kolliderer med den vannrette scrollingen (`Table.ScrollContainer`) som
+  også hindrer en «sticky» tabelloverskrift. Sidestørrelsesvalget gir samme kontroll uten å gjøre layouten skjør.
+
+### B.9 Skuff (Drawer) for utvidet visning og redigering
+
+Store, sammensatte objekter (i dag ingredienser, `components/admin/ingredients/IngredientDrawer.tsx`) åpnes i en bred **skuff** til
+høyre i stedet for på en egen side: listen med filtre og side blir stående bak, og forrige/neste går gjennom den filtrerte listen.
+Konvensjoner:
+
+- **Tilstand som en tagget union** (`{ mode: "view" | "edit"; id }` / `{ mode: "create"; baseId }` / `null`) eid av siden som viser listen — ikke
+  i URL-en (da trengs verken `useSearchParams` eller `<Suspense>`, se B.7/CLAUDE.md).
+- **Ulagrede endringer:** gå bort (lukke, bla, bytte modus) via én `guard(action)` som spør om forkasting når skjemaet er «dirty».
+- **Gotcha — Escape:** en dialog som åpnes _av_ et Escape-trykk (f.eks. «Forkast endringene?» fra skuffens `onClose`) må ha
+  `closeOnEscape={false}`. Ellers fanger dialogens egen Escape-håndtering det samme tastetrykket og lukker seg umiddelbart, så
+  Escape med ulagrede endringer gjør ingenting.
+- **Handlinger øverst, ikke nederst.** Lange skjemaer i skuffen har en «sticky» handlingslinje (lagre, avbryt, ev. brytere) rett under
+  skuffens topplinje, så man slipper å scrolle ned for å lagre eller avbryte. Skuffen måler høyden på topplinjen og deler den som
+  CSS-variabelen `--drawer-header-height`, som handlingslinjen bruker som `top`. Destruktive handlinger (slett) hører hjemme i visningen.
+- **Låste felt** (kildedata som ikke skal endres) vises deaktivert med lås-ikon, en forklaring øverst i skjemaet og en vei videre
+  (f.eks. «Opprett variant»). Verdiene sendes likevel uendret tilbake ved lagring når `PUT` erstatter alt.
+- Skjemaer i skuffen bruker `useForm` direkte (ikke `CreateFormContainer`/`EditFormContainer`, som er laget for enkeltfelts-modaler og
+  sider) og lagrer uten ekstra bekreftelsesdialog.
+- Innholdet beholdes gjennom lukke-animasjonen (sist viste tilstand), ellers tømmes skuffen før den er borte.

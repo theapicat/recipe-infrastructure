@@ -29,7 +29,7 @@ proxy-laget** i et større økosystem — all forretningslogikk og datalagring s
    ┌───────────────────────────┐          ┌───────────────────────────┐
    │ recipe-authentication-api  │          │      recipe-core-api       │
    │ (port 5001) — OpenIddict,  │          │ (port 5002) — oppskrifter, │
-   │ brukere, admin, blacklist  │          │ måltidsplaner, handleliste │
+   │ brukere, admin, blacklist  │          │ ingredienser, næring m.m.  │
    └───────────────────────────┘          └───────────────────────────┘
 
    En egen skrapetjeneste håndterer import av oppskrifter fra godkjente eksterne
@@ -52,7 +52,8 @@ cookies flyter gjennom dette.
 > **⚠️ Denne Next.js-versjonen er nyere enn det du kjenner fra opplæring/minne.**
 > `middleware.ts` heter nå **`proxy.ts`** (se root av repoet). Før du gjør endringer i routing, caching eller
 > proxy-atferd: les `node_modules/next/dist/docs/` (vendored dokumentasjon for denne spesifikke versjonen).
-> Se `AGENTS.md` i rot for detaljer — den filen genereres/oppdateres automatisk av `next dev`.
+> Merk: `next dev` legger automatisk en «agent rules»-blokk inn i `CLAUDE.md` hver gang den starter (kan slås av med
+> `agentRules: false` i `next.config.ts`).
 
 ## 4. Miljøvariabler (`.env.local`)
 
@@ -86,17 +87,20 @@ Se [`07-known-issues-and-tech-debt.md`](./07-known-issues-and-tech-debt.md).
 
 ## 6. Mappeoversikt (høyt nivå)
 
-| Mappe                | Ansvar                                                                                               |
-| -------------------- | ---------------------------------------------------------------------------------------------------- |
-| `app/`               | Next.js App Router — sider, route handlers (`api/`), route groups                                    |
-| `components/`        | React-komponenter, gruppert etter `forms/`, `admin/`, `layout/`, `containers/`                       |
-| `lib/agent/`         | HTTP-klienter mot egne API-ruter og mot Gatewayen (se [04](./04-api-integration-and-data-models.md)) |
-| `lib/session/`       | Cookie-/sesjonshåndtering og React-context for innlogget bruker                                      |
-| `lib/models/`        | TypeScript-modeller/DTO-er, gruppert etter domene (`auth/`, `admin/users/`, ...)                     |
-| `documentation/`     | Denne dokumentasjonen                                                                                |
-| `public/docs/legal/` | Juridiske dokumenter servert direkte til brukere (speiles av `(legal)`-rutene)                       |
-| `proxy.ts`           | Next.js "Proxy" (tidligere Middleware) — auth-gating og token-refresh på sidenavigasjon              |
-| `theme.ts`           | Mantine-tema (se [`06-forms-and-design-system.md`](./06-forms-and-design-system.md))                 |
+| Mappe                | Ansvar                                                                                                                                                                                |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `app/`               | Next.js App Router — sider, route handlers (`api/`), route groups                                                                                                                     |
+| `components/`        | React-komponenter, gruppert etter `forms/`, `admin/`, `layout/`, `containers/`, `common/`                                                                                             |
+| `lib/agent/`         | De to HTTP-agentene: `agentInternal` (mot egne API-ruter) og `agentExternal` (mot Gatewayen) — se [04](./04-api-integration-and-data-models.md)                                       |
+| `lib/http/`          | `apiRoute` — felles ramme (feilhåndtering + `HttpResponse<T>`) for route handlers                                                                                                     |
+| `lib/text/`          | Små tekst-hjelpere (`capitalize`, `normalizeName`) — backend lagrer navn lowercase, UI viser dem med stor forbokstav                                                                  |
+| `lib/session/`       | Cookie-/sesjonshåndtering og React-context for innlogget bruker                                                                                                                       |
+| `lib/models/`        | TypeScript-modeller/DTO-er, gruppert etter domene (`auth/`, `admin/users/`, `recipes/`, `ingredients/`, ...)                                                                          |
+| `documentation/`     | Denne dokumentasjonen                                                                                                                                                                 |
+| `public/docs/legal/` | Juridiske dokumenter servert direkte til brukere (speiles av `(legal)`-rutene)                                                                                                        |
+| `app/globals.css`    | Globale grunnregler: ingen tekstmarkering, pil-markør på tekst og pekefinger kun på interaktive elementer (se [06, B.7](./06-forms-and-design-system.md#b7-tekstmarkering-og-markør)) |
+| `proxy.ts`           | Next.js "Proxy" (tidligere Middleware) — auth-gating og token-refresh på sidenavigasjon                                                                                               |
+| `theme.ts`           | Mantine-tema (se [`06-forms-and-design-system.md`](./06-forms-and-design-system.md))                                                                                                  |
 
 ## 7. Videre lesning
 
@@ -107,3 +111,5 @@ Se [`07-known-issues-and-tech-debt.md`](./07-known-issues-and-tech-debt.md).
 5. [06 – Skjemaer & designsystem](./06-forms-and-design-system.md)
 6. [07 – Kjente problemer & teknisk gjeld](./07-known-issues-and-tech-debt.md)
 7. [08 – Forslag: mappestruktur for modeller & komponenter](./08-model-and-component-structure-proposal.md)
+8. [09 – Oppskriftsdomenet: modell & planlagte sider](./09-recipe-domain-and-planned-pages.md)
+9. [10 – Backlog & utsatte avklaringer](./10-backlog.md)

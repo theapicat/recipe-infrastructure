@@ -2,10 +2,7 @@
 
 ---
 
-Per 2026-09-19. Full designbegrunnelse og verifikasjonshistorikk (hvorfor JWT valideres lokalt, hvorfor
-`ClaimTypes.NameIdentifier` og ikke `"sub"`, testresultater fra en engangstest mot en ekte token) ligger i
-seksjonen «Autentisering og autorisering» i `RECIPE_BACKEND_NOTES.md`. Dette dokumentet beskriver kun
-gjeldende kodetilstand. Sjekk mot faktisk kode ved tvil.
+Per 2026-09-20. Sjekk mot faktisk kode ved tvil.
 
 ## 1. Prinsipp
 
@@ -75,9 +72,15 @@ admin-token via gatewayen.) Er noe av dette med stor bokstav noe sted, er det en
 - **Eierskap:** bruker-ID kommer alltid fra tokenet, aldri fra request-body/query/rute. Ingen
   `/api/user`-endepunkt skal ta imot en `userId`-parameter som påstår hvem eieren er.
 
-**⚠️ Planlagt — ikke bygget:** ingen `/api/user`- eller `/api/admin`-endepunkter som faktisk bruker
-brukerens ID finnes ennå (katalogendepunktene er upersonlige/delte). Dette blir relevant første gang
-oppskrift-endepunkter bygges, siden `Recipe.OwnerUserId` skal settes derfra.
+**Bygget (2026-09-20):** `API/Extensions/ClaimsPrincipalExtensions.GetUserId()` er det eneste stedet bruker-id hentes fra
+tokenet (`ClaimTypes.NameIdentifier`; `"sub"` gir bevisst ikke treff). Den brukes av
+`UserUnconfirmedIngredientController`, som sender id-en inn i hver kommando som eksplisitt `UserId` — request-body har
+ingen bruker-id-felt. Enhetstester låser regelen: `Tests/API/Extensions/ClaimsPrincipalExtensionsTests` og
+`Tests/API/Controllers/UnconfirmedIngredientControllerTests` (id kommer fra tokenet, ikke fra body).
+
+**Bygget (2026-09-20):** oppskrifter (`Recipe.OwnerUserId`) følger samme mønster: `UserRecipeController` sender `User.GetUserId()` inn i hver kommando/spørring, alle
+SQL-funksjoner filtrerer på eier (også barnetabellene), og en annen brukers oppskrift gir samme `404` som en id som ikke finnes — verifisert mot ekte Postgres
+(liste tom, detalj/endre/slett/favoritt/næring gir `404`, og en annen brukers ubekreftede ingrediens kan ikke brukes i en oppskrift). Admin har ingen tilgang til andres oppskrifter.
 
 ---
 
@@ -88,9 +91,10 @@ brukerspesifikke spørringer (`/api/user/**`) filtrerer på eier hentet fra toke
 URL), og treffer de ikke noe, er resultatet «ikke funnet»: en tom liste. Det gir hverken `403` eller en
 `404` som avslører at ressursen finnes. Dette er standard for all brukerspesifikk funksjonalitet.
 
-Åpent: hvilken statuskode og kropp et oppslag, en endring eller en sletting av *én* ressurs på id skal gi
-når ressursen tilhører en annen bruker (svaret skal være det samme som for en id som ikke finnes). Relevant
-først når eide ressurser (oppskrifter) får endepunkter.
+**Implementert for ubekreftede ingredienser (2026-09-20):** oppslag, endring og sletting av *én* ressurs på id som
+tilhører en annen bruker gir nøyaktig samme `404` (med samme lille `ProblemDetails`-kropp, uten `detail`) som en id som ikke finnes — handleren sjekker
+`CreatedByUserId` mot tokenets bruker, og databasefunksjonene har i tillegg eier i `WHERE`. Verifisert mot ekte
+Postgres. Foreslått som standard også for oppskrifter; endelig avgjørelse tas når de bygges.
 
 ---
 

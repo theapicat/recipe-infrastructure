@@ -54,7 +54,7 @@ tidligere avbrutt kjøring fjernes ved oppstart, med et notat.
 
 Testene verifiserer ikke e-postlevering selv. I stedet skriver hver kjøring en avkrysningsliste til
 `api-tests/reports/email-checklist-<tid>.md` over alle e-poster som SKAL ha kommet, med mottaker og hva som utløste
-dem. Åpne Mailpit (<http://localhost:8025>), søk på kjøre-ID-en (står øverst i lista) og kryss av. Kontaktskjemaets e-poster er bevisst ikke med (de leveres ikke i dag, se `../todos/consistency-audit.md`).
+dem. Åpne Mailpit (<http://localhost:8025>), søk på kjøre-ID-en (står øverst i lista) og kryss av. Kontaktskjemaets to e-poster (varsel til admin og kvittering til avsender) er med; de leveres siden navnerom-rettingen i Core 2026-09-24.
 
 ## Hva som testes
 
@@ -67,11 +67,11 @@ dem. Åpne Mailpit (<http://localhost:8025>), søk på kjøre-ID-en (står øver
 | `test_auth_admin.py` | Tilgangsmatrise for alle 14 admin-endepunkter, brukeradministrasjon, sperring, svarteliste |
 | `test_core_public.py` | Kontaktskjemaet **må virke for anonyme** (uten og med ugyldig token) |
 | `test_core_catalog_access.py` | Tilgangsmatrise (anonym/bruker/admin × endepunkt) for alle seks kataloger |
-| `test_core_catalog_crud.py` | Livssyklus (opprett 201, les, endre, slett) per katalog, server-tildelt id og små bokstaver, cache-ugyldiggjøring, DTO-kontroll av alle rader, feilhåndtering |
+| `test_core_catalog_crud.py` | Livssyklus (opprett 201, les, endre, slett) per katalog, server-tildelt id og små bokstaver, cache-ugyldiggjøring, DTO-kontroll av alle rader, `isSystem`/`usageCount` og slettevern, enhetsregler og `dimension` på enhetstyper, feilhåndtering |
 | `test_core_nutrients.py` | Næringsstoffene: skrivebeskyttet, URL-enkodede id-er, rekkefølge, konsistens med enhetskatalogen |
-| `test_core_ingredients.py` | Søk og filtre (navn, kategori, søkeord, allergen inkluder/ekskluder), lesing, admin opprett/endre/slett, valideringsregler, sletting av ingredienser i bruk |
+| `test_core_ingredients.py` | Søk og filtre (navn, kategori, søkeord, allergen inkluder/ekskluder, `isOfficial`, `isVariant`), lesing, admin opprett/endre/slett, spesifikke valideringsmeldinger, låsen på offisielle ingredienser (uten å skrive til seed-data), optimistisk samtidighet, revisjonsfelt, sletting av ingredienser i bruk |
 | `test_core_unconfirmed_ingredients.py` | Brukerens private rader og admin-køen: be om vurdering, godkjenn/slå sammen/avslå, grenser (10 ventende), isolasjon mellom brukere |
-| `test_core_recipes.py` | Oppskrifter er strengt brukereide (tom liste, ti oppskrifter, andres id gir 404), livssyklus, favoritt, alle valideringsregler og grenser, egne ingredienser |
+| `test_core_recipes.py` | Oppskrifter er strengt brukereide (tom liste, ti oppskrifter, andres id gir 404), livssyklus, favoritt, unik tittel per bruker, alle valideringsregler og grenser, egne ingredienser |
 | `test_core_recipe_nutrition.py` | Næringsberegningen: gram fra porsjon/vekt/volum, uspiselig del, totalt og per porsjon, hoppede linjer med årsak, aldri utdatert |
 
 Ikke automatisert (bevisst eller umulig): selve Google-innloggingen (testen sjekker bare at den starter og

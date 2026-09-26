@@ -2,35 +2,36 @@
 
 Dette dokumentet samler konkrete, verifiserte funn i kodebasen — ikke antagelser. Alt her er sjekket direkte
 mot koden (grep/lesing/`tsc --noEmit`/`eslint`), ikke gjettet. Oppdater denne listen når noe fikses eller nytt
-oppdages; se git-historikken for hva som allerede er rettet (bl.a. `npm run lint`/`tsc --noEmit` er begge
-100 % rene per commit `79e8305`).
+oppdages; se git-historikken for hva som allerede er rettet (`npm run lint`/`tsc --noEmit` er begge rene).
+Utsatte oppgaver og åpne avklaringer som ikke er tekniske feil ligger i [10 – Backlog](./10-backlog.md).
 
 ## Avhengig av backend
 
-`BACKEND_REQUIREMENTS.md` i repo-roten sporer to ting frontend nå kompenserer for, men som bør løses i
-`recipe-authentication-api`/Gatewayen: konsekvent små bokstaver på rolleverdier, og et
-`POST /connect/revoke`-endepunkt for ekte token-invalidering ved utlogging. Ingen av delene blokkerer noe på
-frontend-siden — begge har fungerende, best-effort kompenserende tiltak allerede på plass.
+Backend sender nå alltid rollen med små bokstaver (`admin`/`user`), så det punktet er løst — normaliseringen på
+frontend beholdes som forsvar (se [03, seksjon 6](./03-auth-and-session.md)). Det som gjenstår er et
+`POST /connect/revoke`-endepunkt på Gatewayen for ekte token-invalidering ved utlogging (se
+[03, seksjon 4.3](./03-auth-and-session.md)). Det blokkerer ikke noe på frontend-siden — utloggingen har et
+fungerende, best-effort kompenserende tiltak på plass.
 
 ## Store, monolittiske sider uten backend
 
-Kjernefunksjonaliteten appen faktisk er bygget for (oppskrifter, måltidsplan, handleliste) — og tre av
-admin-sidene — er per nå UI-skisser med hardkodet mock-data, ikke koblet til `recipe-core-api`:
+Kjernefunksjonaliteten appen faktisk er bygget for (måltidsplan, handleliste) — og to av admin-sidene (whitelist,
+system) — er per nå UI-skisser med hardkodet mock-data, ikke koblet til `recipe-core-api`. **Oppskrifter er bygget**
+(`app/(user)/user/recipes/*`, se [09](./09-recipe-domain-and-planned-pages.md)): liste, opprettelse, redigering,
+detaljvisning (inkl. næringsfane), sletting, favorittmerking og **kokemodus** bruker nå alle ekte data via
+`components/recipes/*` og `app/api/user/recipes*` — ingen kjente mock-rester igjen i oppskriftsdelen.
 
-| Side                                      | Linjer | Mock-data-variabel                                     |
-| ----------------------------------------- | ------ | ------------------------------------------------------ |
-| `app/(user)/user/recipes/page.tsx`        | 541    | `mockRecipes`                                          |
-| `app/(user)/user/recipes/[id]/page.tsx`   | 547    | (lokal state, ingen fetch)                             |
-| `app/(user)/user/recipes/create/page.tsx` | 518    | `handleSubmit` gjør ingen `fetch`/`agentInternal`-kall |
-| `app/(user)/user/mealplan/page.tsx`       | ~1040  | `MOCK_USER_RECIPES`                                    |
-| `app/(user)/user/shoppinglist/page.tsx`   | 313    | lokal state                                            |
-| `app/(user)/user/import/page.tsx`         | 282    | lokal state                                            |
-| `app/admin/whitelist/page.tsx`            | 311    | `mockDomainsData`                                      |
-| `app/admin/categories/page.tsx`           | 373    | `mockCategories`, `mockIngredients`, `mockUnits`       |
-| `app/admin/system/page.tsx`               | 360    | `mockServices`, `mockRecentLogs`                       |
+| Side                                    | Linjer | Mock-data-variabel               |
+| --------------------------------------- | ------ | -------------------------------- |
+| `app/(user)/user/mealplan/page.tsx`     | 1063   | `MOCK_USER_RECIPES`              |
+| `app/(user)/user/shoppinglist/page.tsx` | 329    | lokal state                      |
+| `app/(user)/user/import/page.tsx`       | 312    | lokal state                      |
+| `app/admin/whitelist/page.tsx`          | 297    | `mockDomainsData`                |
+| `app/admin/system/page.tsx`             | 361    | `mockServices`, `mockRecentLogs` |
 
-Ingen av disse følger skjemaarkitekturen i [06](./06-forms-and-design-system.md), og det finnes ingen
-`lib/models`-filer for oppskrifter/måltidsplan/handleliste ennå. Se
+Linjetallene er målt 2026-09-21. Ingen av disse følger skjemaarkitekturen i
+[06](./06-forms-and-design-system.md) (oppskriftssidene gjør det nå, se [09](./09-recipe-domain-and-planned-pages.md)).
+Det finnes fortsatt ingen modeller for måltidsplan/handleliste. Se
 [08 – Forslag til mappestruktur, seksjon 6](./08-model-and-component-structure-proposal.md) for anbefalt
 migreringsrekkefølge. `app/admin/dashboard/page.tsx` er et særtilfelle — en bevisst intern
 roadmap/sjekkliste for utviklerne selv, ikke et driftsdashboard.
@@ -81,9 +82,11 @@ med andre fikser.
 1. Lag en teststrategi (rammeverk, hva som skal dekkes først — trolig auth-flyten, siden den nå har fått en
    god del ny logikk med `agentInternal`s fornyelses-/retry-mekanisme) før noe annet av kjernedomene-arbeidet
    starter.
-2. Design datamodell + API-lag for oppskrifter/måltidsplan/handleliste (inkl. `DatesProvider`-oppsett for
-   `@mantine/dates`), og migrer én side om gangen til ekte backend + riktig komponentstruktur — følg
-   mappestrukturen i [08](./08-model-and-component-structure-proposal.md).
-3. Vurder om `app/admin/whitelist`, `categories`, `system` skal prioriteres før eller etter kjernefunksjonene.
-4. Ta fatt på `BACKEND_REQUIREMENTS.md` i `recipe-authentication-api` når det passer — ikke hastverk, begge
-   punktene har fungerende kompenserende tiltak på frontend-siden allerede.
+2. Koble sidene til ekte backend én om gangen, med riktig komponentstruktur (inkl. `DatesProvider`-oppsett for
+   `@mantine/dates` når måltidsplanen kommer) — følg mappestrukturen og den besluttede rekkefølgen i
+   [08](./08-model-and-component-structure-proposal.md#6-konkret-migreringsrekkefølge-når-dere-er-klare):
+   kataloger (admin) → ingredienser → oppskrifter → måltidsplan → handleliste.
+3. Vurder om `app/admin/whitelist` og `system` skal prioriteres før eller etter kjernefunksjonene (`/admin/catalog` er
+   koblet til backend og er ikke lenger en mock).
+4. `POST /connect/revoke` på Gatewayen når det passer — ikke hastverk, utloggingen har et fungerende
+   kompenserende tiltak på frontend-siden allerede.

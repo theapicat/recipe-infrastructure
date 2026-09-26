@@ -3,7 +3,7 @@
 ---
 
 Dette dokumentet beskriver den faktiske prosjektstrukturen og hvordan man kommer i gang lokalt, per
-2026-09-19. Sjekk mot faktisk kode ved tvil.
+2026-09-20. Sjekk mot faktisk kode ved tvil.
 
 ## 1. Hva tjenesten er
 
@@ -11,9 +11,10 @@ Dette dokumentet beskriver den faktiske prosjektstrukturen og hvordan man kommer
 måltidsplanlegging og brukerdata. Den ligger bak en YARP-gateway og snakker med søstertjenester
 (`recipe-scraper-service`, `recipe-notification-service`) over RabbitMQ, aldri direkte HTTP.
 
-Repoet er tidlig i utviklingen: domenemodellen og admin-katalogene (kategorier, allergener, enheter) er
-bygget ende-til-ende, men oppskrifter, måltidsplan og handleliste er ikke påbegynt ennå. Se
-`RECIPE_BACKEND_NOTES.md` for designbegrunnelsen bak domenemodellen.
+Repoet er tidlig i utviklingen: domenemodellen, hele ingrediens-/katalogsiden (kategorier, allergener, enheter,
+næringsstoffer, ingredienser og brukernes ubekreftede ingredienser) og oppskrifter (CRUD, favoritt og næringsberegning) er bygget
+ende-til-ende, med seedet referansedata og 703 ingredienser. Måltidsplan, handleliste og en produkt-modell er ikke påbegynt ennå.
+Se [`08-api-reference.md`](08-api-reference.md) for alle endepunkter med forespørsel og svar.
 
 ---
 
@@ -29,7 +30,7 @@ API  →  Application  →  Persistence  →  Domain
 
 - **Domain** — rene entitetsklasser, ingen persistens- eller rammeverksavhengigheter.
 - **Contracts** — meldingskontrakter som publiseres på RabbitMQ (f.eks.
-  `Contracts.Event.ContactFormSubmittedEvent`). Det eneste prosjektet som er ment å sammenlignes mot
+  `Contracts.Events.UserActions.ContactFormSubmittedEvent`). Det eneste prosjektet som er ment å sammenlignes mot
   andre mikrotjenesters kontrakter.
 - **Persistence** — Dapper mot Postgres via Npgsql, `dbup-postgresql` for migrering. Se
   [`06-persistence-and-data-access.md`](06-persistence-and-data-access.md).
@@ -54,9 +55,12 @@ Konsistent gjenbrukt navnekonvensjon for undermapper, satt av brukeren:
 - **`Implementation/`** — konkrete klasser som bruker/lukker en mal fra `Services/`, eller konkrete
   MediatR-handlers (f.eks. `Application.MediatR.Catalog`).
 - **`Interfaces/`** — kun når en modell trenger metoder utover det generiske malen allerede gir. Ikke lag
-  et grensesnitt som bare speiler basisklassens signatur.
+  et grensesnitt som bare speiler basisklassens signatur. Første reelle bruk: `Persistence/Interfaces/`
+  (`IUnconfirmedIngredientReader`/`Writer`).
 - **`Exceptions/`** — egne exception-typer, kun når det faktisk finnes en konkret feiltilstand å dekke
   (se `Persistence/Exceptions/`).
+- **`Results/`** (`Application`) — `Result`/`Result<T>`/`ResultStatus` for forventede forretningsfeil (se
+  [`03-cqrs-and-mediatr.md`](03-cqrs-and-mediatr.md) §4).
 - **`Extensions/`** — samlet ett sted per prosjekt (`API/Extensions/`, `Application/Extensions/`,
   `Persistence/Extensions/`), ikke spredt per undermappe. Én fil per konsern (f.eks.
   `MassTransitExtensions.cs`, `CatalogExtensions.cs`), med én samlende `AddApplicationServices(...)`
@@ -81,9 +85,14 @@ et søsken-repo) — tilkoblingsverdier ligger i `API/appsettings.Development.js
 Postgres) vs. `API/appsettings.json` (Docker-tjenestenavn som `recipe-core-db`, brukt i
 container-/produksjonsoppsett).
 
-**⚠️ Kjent hull:** `Jwt:Key` i `appsettings.Development.json` er tom per denne datoen — API-et kaster
-`InvalidOperationException` ved oppstart til den er fylt inn med samme utviklingsnøkkel som gateway og
-`recipe-auth-api` bruker. Se [`05-authentication-and-authorization.md`](05-authentication-and-authorization.md).
+**Databasen:** ved oppstart kjører `MigrateDatabase` (DbUp) alle skript som ikke er kjørt før: tabeller (`10000`), spørringer (`20000`),
+kommandoer (`30000`) og seed-data (`SeedData/seed_*.sql`, ca. 12 sekunder mot en tom database). Før frysepunktet (første utrulling) redigeres
+`10000/20000/30000` på stedet, og dev-databasen tilbakestilles (`DROP SCHEMA public CASCADE; CREATE SCHEMA public;` + `CREATE EXTENSION IF NOT EXISTS "uuid-ossp";`) —
+se [`06-persistence-and-data-access.md`](06-persistence-and-data-access.md).
+
+`Jwt:Key` i `appsettings.Development.json` er satt til den delte dev-nøkkelen (identisk med gateway og `recipe-auth-api`).
+API-et kaster `InvalidOperationException` ved oppstart hvis `Jwt:Key`/`Issuer`/`Audience` mangler. Se
+[`05-authentication-and-authorization.md`](05-authentication-and-authorization.md).
 
 ---
 

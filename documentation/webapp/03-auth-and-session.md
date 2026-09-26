@@ -23,24 +23,25 @@ JWT-bibliotek er i bruk):
 
 ## 2. To HTTP-klienter — ikke bland dem
 
-| Klient                       | Kjører i                | Brukes til                                                          | Auth-header                                                                          |
-| ---------------------------- | ----------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `lib/agent/agentInternal.ts` | Klient (`"use client"`) | Kalle **denne appens egne** `app/api/**`-ruter, same-origin `fetch` | Ingen — cookien følger automatisk med                                                |
-| `lib/agent/agentExternal.ts` | Server (route handlers) | Kalle **Gatewayen** direkte, `mode: "cors"`                         | `Authorization: Bearer <token fra sessionManager.getToken()>`, satt manuelt per kall |
+| Klient                       | Kjører i                | Brukes til                                                          | Auth-header                                                                    |
+| ---------------------------- | ----------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `lib/agent/agentInternal.ts` | Klient (`"use client"`) | Kalle **denne appens egne** `app/api/**`-ruter, same-origin `fetch` | Ingen — cookien følger automatisk med                                          |
+| `lib/agent/agentExternal.ts` | Server (route handlers) | Kalle **Gatewayen** direkte, `mode: "cors"`                         | `Authorization: Bearer <token fra sessionManager.getToken()>`, satt automatisk |
 
-`agentAuth.ts` og `agentAuthAdmin.ts` er tynne, typede wrappere rundt `agentExternal` — én metode per
-Gateway-endepunkt (login, register, hent profil, lås bruker, svarteliste, ...).
+Det finnes bevisst ingen flere agenter: route handlers kaller `agentExternal` direkte (via `apiRoute`, se
+[04](./04-api-integration-and-data-models.md)). De tidligere `agentAuth.ts`/`agentAuthAdmin.ts`-wrapperne er fjernet,
+og logikken deres ligger nå i handlerne som bruker dem (login, register, logout, refresh, ...).
 
 **Viktig:** `agentExternal` gjør selv **ingen** forsøk på å fornye et utløpt token før den bruker det — den
 henter bare det som ligger i cookien akkurat nå og sender det av gårde. Fornyelse skjer i to uavhengige lag:
 `proxy.ts` ved sidenavigasjon (se under), og `agentInternal` ved API-kall (se seksjon 5).
 
-**`fetchWithTimeout`** (`lib/agent/fetchWithTimeout.ts`, 10 sekunder default) brukes av alle fem metodene i
+**`fetchWithTimeout`** (`lib/agent/fetchWithTimeout.ts`, 10 sekunder default) brukes av alle kall i
 `agentExternal` og av `proxy.ts` sitt eget frittstående refresh-kall — den eneste plassen appen faktisk gjør
 et nettverkskall mot Gatewayen. Uten dette kan et uoppnåelig Gateway (feil vert, brannmur som dropper pakker
 stille, VPN nede — i motsetning til f.eks. "ingenting kjører på localhost" som feiler nesten øyeblikkelig)
 henge et kall på ubestemt tid. Dette rammet i praksis logout (se seksjon 4.3): brukeren fikk ingen
-tilbakemelding og satt fast, siden `agentAuth.revokeToken()` sitt kall aldri fikk en tidsgrense å gi opp ved.
+tilbakemelding og satt fast, siden revoke-kallet i logout-ruten aldri fikk en tidsgrense å gi opp ved.
 
 ## 3. `proxy.ts` — Next.js' "Proxy" (tidligere Middleware)
 
@@ -56,7 +57,7 @@ Logikk, i rekkefølge:
 2. **Trenger fornyelse?** Hvis `token` mangler, eller har mindre enn 300 sekunder igjen til utløp
    (`getRemainingExpTime`), og det finnes en `refreshToken` → kall
    `POST {GATEWAY_URL}/auth/connect/token` med `grant_type=refresh_token` direkte (uten å gå via
-   `agentAuth`/`agentExternal` — dette er en frittstående `fetch`).
+   `agentExternal` — dette er et frittstående `fetchWithTimeout`-kall).
    - Lykkes det → nye tokens brukes resten av requesten, og settes på responsen som `Set-Cookie`.
    - Feiler det (f.eks. `invalid_grant` fordi refresh-tokenet er utløpt) → tvungen utlogging: cookies
      slettes, redirect til `/login?expired=true`.
@@ -74,8 +75,8 @@ Refresh-kallet i `proxy.ts` bruker:
 const refreshUrl = `${process.env.GATEWAY_URL || "http://localhost:5000/api"}/auth/connect/token`;
 ```
 
-— samme `GATEWAY_URL` som `agentAuth.ts`/`agentAuthAdmin.ts` bygger sin base-URL fra
-(`` `${GATEWAY_URL}/auth` ``). Dette var tidligere to separate variabler (`AUTH_API`/`CORE_API`) pluss en
+— samme `GATEWAY_URL` som `agentExternal.ts` bygger alle URL-ene sine fra
+(`` `${GATEWAY_URL}${path}` ``, f.eks. `/auth/account/me`). Dette var tidligere to separate variabler (`AUTH_API`/`CORE_API`) pluss en
 tredje, aldri satt variabel i `proxy.ts` alene (`NEXT_PUBLIC_AUTH_API`), som gjorde at proxyens token-refresh
 kjørte på en hardkodet fallback-URL uten at noen la merke til det. Slått sammen til én variabel nettopp for at
 dette ikke skal kunne skje igjen — endres Gateway-URL-en, er det ett sted å gjøre det.
@@ -87,14 +88,14 @@ dette ikke skal kunne skje igjen — endres Gateway-URL-en, er det ett sted å g
 ```
 LoginForm (client) → agentInternal.post("/api/auth/login")
   → app/api/auth/login/route.ts
-      → agentAuth.login()         (OAuth2 "password" grant → Gateway /connect/token)
-      → fetch GET {GATEWAY_URL}/auth/account/me   (henter profil med det ferske access-tokenet)
+      → agentExternal.postForm("/auth/connect/token")   (OAuth2 "password" grant)
+      → agentExternal.get("/auth/account/me", { token })   (henter profil med det ferske access-tokenet)
       → sessionManager.setSession(tokens, profil)   (setter alle tre cookies)
   ← { statusCode, body: UserProfileResponse }
 → session.setUser(...) i SessionProvider, redirect til /dashboard eller /admin/dashboard
 ```
 
-### 4.2 Google OAuth (avviker fra alt annet — leser IKKE via agentAuth)
+### 4.2 Google OAuth (avviker fra alt annet — går IKKE via agentExternal)
 
 ```
 GoogleLogin/GoogleRegister → window.location.href = "/api/auth/google"
@@ -114,14 +115,13 @@ opp og oversettes til norske feilmeldinger i `app/(auth)/login/page.tsx` og `app
 
 `UserMenu.tsx` → `agentInternal.post("/api/auth/logout")` → `app/api/auth/logout/route.ts`:
 
-1. `agentAuth.revokeToken()` — **best-effort** `POST {GATEWAY_URL}/auth/connect/revoke` med refresh-tokenet
-   (RFC 7009-format, samme form-encoding som `/connect/token`). Kaster aldri — feiler kallet (f.eks. fordi
-   Gatewayen ikke har endepunktet ennå, eller er helt uoppnåelig), fortsetter utloggingen som normalt. Går
-   via `agentExternal`, som bruker `fetchWithTimeout` (se seksjon 2) — **kritisk** her, siden et uoppnåelig
-   Gateway uten tidsgrense tidligere kunne henge dette kallet på ubestemt tid og la brukeren sitte fast
-   midt i utlogging uten tilbakemelding. Se `BACKEND_REQUIREMENTS.md` i repo-roten for hva som forventes av
-   backend, inkludert en viktig presisering om at revocation av refresh-tokenet ikke nødvendigvis gjør et
-   allerede utstedt (JWT) access-token ugyldig før det utløper naturlig.
+1. **Best-effort** `POST {GATEWAY_URL}/auth/connect/revoke` med refresh-tokenet (RFC 7009-format, samme
+   form-encoding som `/connect/token`), direkte i logout-ruten via `agentExternal.postForm`. Feil ignoreres —
+   feiler kallet (f.eks. fordi Gatewayen ikke har endepunktet ennå, eller er helt uoppnåelig), fortsetter
+   utloggingen som normalt. Går via `agentExternal`, som bruker `fetchWithTimeout` (se seksjon 2) — **kritisk**
+   her, siden et uoppnåelig Gateway uten tidsgrense tidligere kunne henge dette kallet på ubestemt tid og la
+   brukeren sitte fast midt i utlogging uten tilbakemelding. Merk at revocation av refresh-tokenet ikke
+   nødvendigvis gjør et allerede utstedt (JWT) access-token ugyldig før det utløper naturlig.
 2. `sessionManager.removeSession()` — sletter de tre lokale cookiene.
 
 `UserMenu.tsx` sin `handleLogout()` viser nå en `loading`-tilstand ("Logger ut …") mens kallet pågår, og en
@@ -142,12 +142,12 @@ Klientkomponent → agentInternal.get/post/put/delete(...)
   → fetch mot egen /api/**-rute
   → svar med status 401?
       nei → returner svaret som normalt
-      ja  → kall POST /api/auth/refresh (agentAuth.refresh() + sessionManager.setToken/setRefreshToken)
+      ja  → kall POST /api/auth/refresh (refresh-token grant via agentExternal + sessionManager.setToken/setRefreshToken)
               lykkes → gjenta det opprinnelige kallet én gang, returner det svaret
               feiler → returner det opprinnelige 401-svaret uendret
 ```
 
-`app/api/auth/refresh/route.ts` er den nye ruten — bruker den tidligere ubrukte `agentAuth.refresh()` og
+`app/api/auth/refresh/route.ts` gjør refresh-token-grant'en selv via `agentExternal.postForm` og bruker
 `sessionManager` sine individuelle settere (`setToken`, `setRefreshToken`). Feiler fornyelsen (refresh-tokenet
 er også utløpt), nullstilles sesjonen (`sessionManager.removeSession()`) og ruten svarer 401.
 

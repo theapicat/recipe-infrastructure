@@ -189,11 +189,11 @@ systemet kan utforskes uten å klone alle syv repoene enkeltvis:
 ```text
 documentation/
 ├── auth-api/             # Speil av recipe-auth-api/Documentation/ (arkitektur, CQRS, events, OpenIddict, teststrategi)
-├── core-api/              # Speil av recipe-core-api/Documentation/ (arkitektur, endepunkter, CQRS, events, auth/JWT, persistens, teststrategi)
+├── core-api/              # Speil av recipe-core-api/Documentation/ (arkitektur, endepunkter, CQRS, events, auth/JWT, persistens, teststrategi, API-referanse)
 ├── gateway-api/           # Speil av recipe-gateway-api/Dokumentasjon/ (routing/kontrakt mot hver nedstrøms-tjeneste)
 ├── notification-service/  # Speil av recipe-notification-service/Documentation/ (arkitektur, maler, feilhåndtering, teststrategi)
 ├── scraper-service/       # README (tjenesten er ennå ikke påbegynt utover planlegging)
-├── webapp/                # Speil av recipe-webapp/documentation/ (routing, auth/sesjon, skjemaer/designsystem, kjent teknisk gjeld, oppskriftsdomenet)
+├── webapp/                # Speil av recipe-webapp/documentation/ (routing, auth/sesjon, skjemaer/designsystem, kjent teknisk gjeld, oppskriftsdomenet, backlog)
 └── legal/                 # Speil av recipe-webapp/public/docs/legal/ (personvern, cookies, vilkår, tilgjengelighet)
 
 ```

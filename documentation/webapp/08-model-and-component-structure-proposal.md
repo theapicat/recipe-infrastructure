@@ -62,7 +62,7 @@ lib/models/
 │   ├── ShoppingListItem.ts
 │   └── GenerateShoppingListRequest.ts
 └── admin/
-    ├── categories/                  # når /admin/categories går fra mock til ekte
+    ├── catalog/                     # ✅ gjort: lib/models/catalog/ (hvitliste + typekart)
     └── whitelist/                   # når /admin/whitelist går fra mock til ekte
 ```
 
@@ -109,7 +109,8 @@ components/
 │   ├── ShoppingListItemRow.tsx
 │   └── ShoppingListGenerator.tsx
 └── admin/
-    ├── categories/
+    ├── catalog/                     # ✅ gjort: components/admin/catalog/
+    ├── ingredients/                 # ✅ gjort (full CRUD i skuff): components/admin/ingredients/
     └── whitelist/
 ```
 
@@ -121,10 +122,13 @@ dag).
 
 ## 6. Konkret migreringsrekkefølge når dere er klare
 
-Anbefalt rekkefølge — start med oppskrifter siden måltidsplan og handleliste begge refererer til dem:
+Besluttet rekkefølge (2026-09-21): **kataloger (admin) → ingredienser → oppskrifter → måltidsplan → handleliste.**
+Oppskrifter avhenger av ingredienser, som igjen avhenger av katalogene (ingrediens-/oppskriftskategorier, enheter,
+allergener, søkeord), så de bygges i omvendt rekkefølge av hvordan de brukes. Punktene under gjelder oppskriftsdelen:
 
-1. `lib/models/recipes/*` + `agentRecipes.ts` (samme mønster som `agentAuth.ts`) + `app/api/recipes/**`
-   route handlers.
+1. `lib/models/recipes/*` (gjort) + route handlers som bruker `apiRoute` og `agentExternal` direkte. Det lages
+   **ingen** egen `agentRecipes.ts` — appen har kun `agentInternal` og `agentExternal` (se
+   [04](./04-api-integration-and-data-models.md)).
 2. Bryt `app/(user)/user/recipes/page.tsx` (541 linjer) opp i `page.tsx` (tynn) +
    `components/recipes/RecipeCard.tsx` + `RecipeFilterBar.tsx`, koblet til ekte data.
 3. Gjenta for `recipes/create` og `recipes/[id]/edit` med en delt `RecipeForm.tsx` (de to sidene gjør i dag
@@ -135,5 +139,5 @@ Anbefalt rekkefølge — start med oppskrifter siden måltidsplan og handleliste
    oppskrifter (`MOCK_USER_RECIPES` peker på recipe-data), så den bør komme etter punkt 1–4.
 6. Til slutt handleliste, som typisk genereres _fra_ måltidsplanen.
 
-Adminsidene (`whitelist`, `categories`, `system`) kan tas uavhengig av dette løpet — de har ingen avhengighet
+Adminsidene (`whitelist`, `system`) kan tas uavhengig av dette løpet — de har ingen avhengighet
 til oppskrifts-domenet.
