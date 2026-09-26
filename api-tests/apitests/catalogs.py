@@ -39,6 +39,15 @@ def _rename(payload: dict) -> dict:
     return {**payload, "name": payload["name"] + "-endret"}
 
 
+def _unit_type(name: str, parent_id: str | None = None) -> dict:
+    # Vekt: da kan testenhetene under den ha et forholdstall ulikt 1 (antall krever 1)
+    return {"name": name, "dimension": "Weight"}
+
+
+def _modify_unit_type(payload: dict) -> dict:
+    return {**payload, "name": payload["name"] + "-endret", "dimension": "Volume"}
+
+
 def _unit(name: str, parent_id: str | None) -> dict:
     # Forkortelsen er også unik, og radene slettes først ved slutten av kjøringen: den utledes derfor fra navnet
     abbreviation = "a" + hashlib.sha1(name.encode()).hexdigest()[:6]
@@ -52,7 +61,7 @@ def _modify_unit(payload: dict) -> dict:
 # Rekkefølgen er viktig for opprydding: rader som peker på andre (units) må slettes før det de peker på (unit-types).
 CATALOGS: list[CatalogSpec] = [
     CatalogSpec("units", Unit, _unit, _modify_unit, parent="unit-types"),
-    CatalogSpec("unit-types", UnitType, _named, _rename),
+    CatalogSpec("unit-types", UnitType, _unit_type, _modify_unit_type),
     CatalogSpec("allergens", Allergen, _named, _rename),
     CatalogSpec("ingredient-categories", IngredientCategory, _named, _rename),
     CatalogSpec("search-keywords", SearchKeyword, _named, _rename),

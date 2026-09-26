@@ -14,6 +14,7 @@ from apitests.catalogs import BY_RESOURCE, CATALOGS, CatalogSpec, new_id
 from apitests.config import Settings
 from apitests.http import describe, expect
 from apitests.models.common import ProblemDetails
+from apitests.models.core import UnitType
 
 by_resource = pytest.mark.parametrize("spec", CATALOGS, ids=lambda s: s.resource)
 
@@ -70,7 +71,7 @@ def test_full_lifecycle(spec: CatalogSpec, admin: Actor, user: Actor, create_row
     assert user.core.get(f"{spec.user_path}/{row_id}").status_code == 404
     assert row_id not in _ids(admin.core.get(spec.admin_path))
     assert row_id not in _ids(user.core.get(spec.user_path))
-    assert admin.core.delete(f"{spec.admin_path}/{row_id}").status_code == 204, "sletting skal være idempotent (204 også når raden er borte)"
+    assert admin.core.delete(f"{spec.admin_path}/{row_id}").status_code == 404, "ny sletting av en rad som er borte skal gi 404"
 
 
 # ---------------------------------------------------------------------------------- DTO-kontroll
@@ -97,6 +98,18 @@ def test_server_assigns_the_id_and_normalizes_the_name(spec: CatalogSpec, settin
 
 
 @pytest.mark.mutating
+@by_resource
+def test_is_system_and_usage_count_cannot_be_set_by_the_client(spec: CatalogSpec, admin: Actor, create_row):
+    """Begge er serverstyrte: ignoreres på POST (og nullstilles i 201-svaret) og på PUT."""
+    parent = create_row(BY_RESOURCE[spec.parent], "serverstyrt-forelder") if spec.parent else None
+    row = create_row(spec, "serverstyrt", parent["id"] if parent else None, isSystem=True, usageCount=99)
+    assert (row["isSystem"], row["usageCount"]) == (False, 0)
+    assert admin.core.put(spec.admin_path, json={**row, "isSystem": True, "usageCount": 99}).status_code == 200
+    stored = expect(admin.core.get(f"{spec.admin_path}/{row['id']}"), 200, spec.model).to_json()
+    assert (stored["isSystem"], stored["usageCount"]) == (False, 0)
+
+
+@pytest.mark.mutating
 def test_unit_abbreviation_keeps_its_case(create_row):
     """Enhetsforkortelser er symboler (`µg`, `mg-ATE`) og beholder store/små bokstaver."""
     unit_type = create_row(BY_RESOURCE["unit-types"], "symbol-forelder")
@@ -119,13 +132,96 @@ def test_an_existing_name_is_a_conflict(spec: CatalogSpec, admin: Actor, setting
 
 @pytest.mark.mutating
 def test_a_catalog_row_in_use_cannot_be_deleted(admin: Actor, create_row):
-    """Enhetstypen brukes av en enhet: sletting gir 409, og går først når enheten er borte."""
+    """Enhetstypen brukes av en enhet: `usageCount` teller den, sletting gir 409, og går først når enheten er borte."""
     unit_type = create_row(BY_RESOURCE["unit-types"], "i-bruk-forelder")
     unit = create_row(BY_RESOURCE["units"], "i-bruk", unit_type["id"])
+    assert expect(admin.core.get(f"/api/admin/unit-types/{unit_type['id']}"), 200, UnitType).usage_count == 1
     resp = admin.core.delete(f"/api/admin/unit-types/{unit_type['id']}")
-    assert resp.status_code == 409, f"raden er i bruk, forventet 409: {describe(resp)}"
+    assert expect(resp, 409, ProblemDetails).detail == "Brukes av 1 enheter og ingredienser og kan ikke slettes."
     assert admin.core.delete(f"/api/admin/units/{unit['id']}").status_code == 204
+    assert expect(admin.core.get(f"/api/admin/unit-types/{unit_type['id']}"), 200, UnitType).usage_count == 0
     assert admin.core.delete(f"/api/admin/unit-types/{unit_type['id']}").status_code == 204
+
+
+def _system_rows_in_use(admin: Actor, spec: CatalogSpec) -> list[dict]:
+    rows = expect(admin.core.get(spec.admin_path), 200, list[spec.model])
+    return [r.to_json() for r in rows if r.is_system and r.usage_count > 0]
+
+
+@by_resource
+def test_seed_rows_are_system_rows_and_cannot_be_deleted(spec: CatalogSpec, admin: Actor, core_admin_ready):
+    """Seed-rader har `isSystem: true` og gir 409 ved sletting.
+
+    Testen bruker bare systemrader som også er i bruk, så selv om systemsjekken skulle svikte, stopper bruks-sjekken
+    slettingen (da feiler testen på meldingen, men seed-dataene blir stående)."""
+    candidates = _system_rows_in_use(admin, spec)
+    if not candidates:
+        pytest.skip(f"{spec.resource} har ingen seedede rader i bruk")
+    row = candidates[0]
+    resp = admin.core.delete(f"{spec.admin_path}/{row['id']}")
+    assert expect(resp, 409, ProblemDetails).detail == "Systemrader (fra seed-data) kan ikke slettes."
+    assert admin.core.get(f"{spec.admin_path}/{row['id']}").status_code == 200
+
+
+def test_every_seeded_unit_type_has_a_dimension(admin: Actor, core_admin_ready):
+    """De tre seedede enhetstypene dekker hver sin dimensjon; beregningene bruker dimensjonen, ikke navnet."""
+    seeded = [t for t in expect(admin.core.get("/api/admin/unit-types"), 200, list[UnitType]) if t.is_system]
+    assert sorted(t.dimension for t in seeded) == ["Count", "Volume", "Weight"]
+
+
+# --------------------------------------------------------------------------------- enheter og enhetstyper
+
+UNIT_RULES = {
+    "tom-forkortelse": ({"abbreviation": "  "}, "Forkortelse må oppgis."),
+    "forholdstall-null": ({"baseUnitRatio": 0}, "Forholdstallet må være større enn 0."),
+    "negativt-forholdstall": ({"baseUnitRatio": -1}, "Forholdstallet må være større enn 0."),
+    "ukjent-enhetstype": ({"unitTypeId": new_id()}, "Enhetstypen finnes ikke."),
+}
+
+
+@pytest.mark.mutating
+@pytest.mark.parametrize("case", UNIT_RULES)
+def test_invalid_units_are_rejected_on_create_and_update(admin: Actor, create_row, case: str):
+    change, detail = UNIT_RULES[case]
+    unit_type = create_row(BY_RESOURCE["unit-types"], f"enhetsregel-{case}-forelder")
+    spec = BY_RESOURCE["units"]
+    bad = {**spec.build(f"apitest-enhetsregel-{case}-avvist", unit_type["id"]), **change}
+    assert expect(admin.core.post(spec.admin_path, json=bad), 400, ProblemDetails).detail == detail
+
+    unit = create_row(spec, f"enhetsregel-{case}", unit_type["id"])
+    assert expect(admin.core.put(spec.admin_path, json={**unit, **change}), 400, ProblemDetails).detail == detail
+    assert expect(admin.core.get(f"{spec.admin_path}/{unit['id']}"), 200, spec.model).to_json() == unit
+
+
+@pytest.mark.mutating
+def test_count_units_must_have_ratio_one(admin: Actor, create_row):
+    """Antall-enheter (stk, skive ...) regnes ikke om, så forholdstallet må være nøyaktig 1."""
+    count_type = create_row(BY_RESOURCE["unit-types"], "antall-forelder", dimension="Count")
+    spec = BY_RESOURCE["units"]
+    bad = spec.build("apitest-antall", count_type["id"])  # forholdstall 1.5
+    detail = "Enheter av typen antall regnes ikke om - forholdstallet må være 1."
+    assert expect(admin.core.post(spec.admin_path, json=bad), 400, ProblemDetails).detail == detail
+    assert create_row(spec, "antall", count_type["id"], baseUnitRatio=1)["baseUnitRatio"] == 1
+
+
+@pytest.mark.mutating
+@pytest.mark.parametrize("dimension", ["Weight", "Volume", "Count"])
+def test_unit_types_keep_their_dimension(admin: Actor, create_row, dimension: str):
+    row = create_row(BY_RESOURCE["unit-types"], f"dimensjon-{dimension.lower()}", dimension=dimension)
+    assert row["dimension"] == dimension
+    assert expect(admin.core.get(f"/api/admin/unit-types/{row['id']}"), 200, UnitType).dimension == dimension
+
+
+@pytest.mark.mutating
+@pytest.mark.parametrize("dimension", [None, "Length", "vekt", 7])
+def test_a_unit_type_needs_a_valid_dimension(admin: Actor, settings: Settings, core_admin_ready, dimension):
+    body = {"name": settings.test_name("uten-dimensjon")}
+    if dimension is not None:
+        body["dimension"] = dimension
+    resp = admin.core.post("/api/admin/unit-types", json=body)
+    if resp.status_code == 201:  # sikkerhetsnett: ikke la en feilaktig opprettet rad bli liggende
+        admin.core.delete(f"/api/admin/unit-types/{resp.json()['id']}")
+    assert resp.status_code == 400, f"ugyldig/manglende dimensjon skal gi 400: {describe(resp)}"
 
 
 # ------------------------------------------------------------------------------- feilhåndtering
@@ -142,7 +238,7 @@ def test_create_without_required_fields_is_rejected(spec: CatalogSpec, admin: Ac
 def test_create_with_a_blank_name_is_rejected(spec: CatalogSpec, admin: Actor, create_row):
     parent = create_row(BY_RESOURCE[spec.parent], "tomt-navn-forelder") if spec.parent else None
     resp = admin.core.post(spec.admin_path, json=spec.build("   ", parent["id"] if parent else None))
-    assert resp.status_code == 400, f"tomt navn skal gi 400: {describe(resp)}"
+    assert expect(resp, 400, ProblemDetails).detail == "Navn må oppgis."
 
 
 @pytest.mark.mutating
@@ -163,7 +259,7 @@ def test_malformed_id_is_a_bad_request(spec: CatalogSpec, admin: Actor, core_adm
 
 @pytest.mark.mutating
 @by_resource
-def test_unknown_id_is_404_and_delete_is_idempotent(spec: CatalogSpec, admin: Actor, core_admin_ready):
+def test_unknown_id_is_404(spec: CatalogSpec, admin: Actor, core_admin_ready):
     missing = uuid.uuid4()
     assert admin.core.get(f"{spec.admin_path}/{missing}").status_code == 404
-    assert admin.core.delete(f"{spec.admin_path}/{missing}").status_code == 204
+    assert admin.core.delete(f"{spec.admin_path}/{missing}").status_code == 404

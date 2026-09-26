@@ -50,7 +50,8 @@ class Leftovers:
     blacklist: list[dict] = field(default_factory=list)
     catalog_rows: list[tuple[str, dict]] = field(default_factory=list)
     ingredients: list[dict] = field(default_factory=list)
-    # Oppskrifter og ubekreftede ingredienser som tilhører testbrukere (Core rydder ikke når en konto slettes)
+    # Oppskrifter og ubekreftede ingredienser som tilhører testbrukere. Core rydder dem når en konto slettes, men asynkront via
+    # RabbitMQ (og bare når Core kjører), så sweepen sletter dem selv før brukeren slettes
     user_items: list[tuple[str, str, dict]] = field(default_factory=list)  # (e-post, "recipes"|"unconfirmed-ingredients", rad)
 
     @property

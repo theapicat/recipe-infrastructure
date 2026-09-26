@@ -228,7 +228,11 @@ def test_approve_creates_the_official_ingredient(admin: Actor, alice: Actor, use
     resolved = expect(alice.core.get(f"{UP}/{row.id}"), 200, UnconfirmedIngredient)
     assert resolved.review_status == "Approved" and resolved.resolved_ingredient_id == ingredient.id
     assert resolved.reviewed_at is not None and resolved.rejection_reason is None
-    assert expect(user.core.get(f"/api/user/ingredients/{ingredient.id}"), 200, Ingredient) == ingredient
+    stored = expect(user.core.get(f"/api/user/ingredients/{ingredient.id}"), 200, Ingredient)
+    # usageCount regnes bare ved lesing (svaret på approve har alltid 0); den løste raden peker nå på ingrediensen
+    assert stored.usage_count == 1
+    assert stored.model_copy(update={"usage_count": 0}) == ingredient
+    assert stored.is_official is False, "en godkjent brukeringrediens er ikke offisiell"
     assert ingredient.id in {i["id"] for i in user.core.get("/api/user/ingredients").json()}, "den nye ingrediensen er søkbar for alle"
     assert row.id not in {r.id for r in _queue(admin)}, "avgjort rad skal ut av køen"
 
@@ -291,7 +295,7 @@ def test_invalid_decisions_are_rejected_and_leave_the_row_pending(
     row = make_unconfirmed(alice, "ugyldig-avgjoerelse", request_review=True)
     assert admin.core.post(f"{AP}/{row.id}/approve", json=ingredient_payload(ref, "  ")).status_code == 400
     bad_category = ingredient_payload(ref, unique("ugyldig"), categoryId=str(uuid.uuid4()))
-    assert admin.core.post(f"{AP}/{row.id}/approve", json=bad_category).status_code == 409
+    assert expect(admin.core.post(f"{AP}/{row.id}/approve", json=bad_category), 400, ProblemDetails).detail == "Kategorien finnes ikke."
     assert admin.core.post(f"{AP}/{row.id}/merge", json={"ingredientId": str(uuid.uuid4())}).status_code == 400, \
         "sammenslåing med en ingrediens som ikke finnes gir 400"
     assert expect(admin.core.get(f"{AP}/{row.id}"), 200, UnconfirmedIngredient).review_status == "Pending"

@@ -242,6 +242,32 @@ def test_recipe_lines_can_be_to_taste(alice: Actor, ref: Reference, make_recipe)
     assert [(i.sort_order, i.amount) for i in recipe.ingredients] == [(1, 0), (2, 0), (3, 1.5)]
 
 
+# ------------------------------------------------------------------------------------------- unik tittel
+
+DUPLICATE_TITLE = "Du har allerede en oppskrift med denne tittelen. Velg en annen tittel."
+
+
+def test_a_title_is_unique_per_user(alice: Actor, bob: Actor, ref: Reference, make_recipe):
+    """Samme tittel (uansett store/små bokstaver og mellomrom) gir 409 for samme bruker, men ikke for en annen bruker."""
+    first = make_recipe(alice, "unik-tittel")
+    messy = "  " + first.title.upper() + "  "
+    assert expect(_post(alice, recipe_payload(ref, messy)), 409, ProblemDetails).detail == DUPLICATE_TITLE
+    assert [r.id for r in _list(alice) if r.title == first.title] == [first.id], "ingen ny oppskrift skal være lagret"
+
+    other = make_recipe(bob, "annen-bruker", title=first.title)
+    assert other.title == first.title, "ulike brukere kan ha samme tittel"
+
+
+def test_a_recipe_keeps_its_own_title_on_update_but_cannot_take_another(alice: Actor, make_recipe):
+    first, second = make_recipe(alice, "tittel-a"), make_recipe(alice, "tittel-b")
+    same = {**_recipe_request(alice, first), "servings": 6}
+    assert expect(alice.core.put(f"{BASE}/{first.id}", json=same), 200, Recipe).servings == 6
+
+    taken = {**_recipe_request(alice, second), "title": first.title.upper()}
+    assert expect(alice.core.put(f"{BASE}/{second.id}", json=taken), 409, ProblemDetails).detail == DUPLICATE_TITLE
+    assert _get(alice, second.id).title == second.title
+
+
 # ------------------------------------------------------------------------------------------- validering
 
 def _lines(ref: Reference, n: int) -> list[dict]:

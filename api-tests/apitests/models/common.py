@@ -39,5 +39,6 @@ class ProblemDetails(BaseModel):
     type: str | None = None
     title: str | None = None
     status: int | None = None
+    detail: str | None = None
     errors: dict[str, list[str]] | None = None
     traceId: str | None = None

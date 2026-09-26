@@ -7,9 +7,17 @@ from typing import Literal
 from .base import ApiModel
 
 
+UnitDimension = Literal["Weight", "Volume", "Count"]
+
+
 class UnitType(ApiModel):
+    """`name` er bare en etikett; `dimension` er det beregningene bruker."""
+
     id: str
     name: str
+    dimension: UnitDimension
+    is_system: bool
+    usage_count: int
 
 
 class Unit(ApiModel):
@@ -18,26 +26,36 @@ class Unit(ApiModel):
     abbreviation: str
     unit_type_id: str
     base_unit_ratio: float
+    is_system: bool
+    usage_count: int
 
 
 class Allergen(ApiModel):
     id: str
     name: str
+    is_system: bool
+    usage_count: int
 
 
 class IngredientCategory(ApiModel):
     id: str
     name: str
+    is_system: bool
+    usage_count: int
 
 
 class SearchKeyword(ApiModel):
     id: str
     name: str
+    is_system: bool
+    usage_count: int
 
 
 class RecipeCategory(ApiModel):
     id: str
     name: str
+    is_system: bool
+    usage_count: int
 
 
 # ------------------------------------------------------------------------------------ næringsstoffer
@@ -75,6 +93,14 @@ class IngredientListItem(ApiModel):
     default_unit_id: str
     energy_kcal: float
     is_verified: bool
+    is_official: bool
+    created_at: datetime
+    updated_at: datetime
+    verified_at: datetime | None
+    nutrient_value_count: int
+    portion_count: int
+    allergens_reviewed: bool
+    usage_count: int
     variant_of_ingredient_id: str | None
     allergen_ids: list[str]
     search_keyword_ids: list[str]
@@ -112,6 +138,14 @@ class Ingredient(ApiModel):
     nutrient_values: list[IngredientNutrientValue]
     portions: list[IngredientPortion]
     is_verified: bool
+    is_official: bool
+    updated_at: datetime
+    created_at: datetime
+    allergens_reviewed: bool
+    usage_count: int
+    updated_by_user_id: str | None
+    verified_at: datetime | None
+    verified_by_user_id: str | None
 
 
 ReviewStatus = Literal["NotRequested", "Pending", "Approved", "Merged", "Rejected"]

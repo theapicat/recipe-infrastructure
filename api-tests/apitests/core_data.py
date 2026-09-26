@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from .actors import Actor
 from .http import ApiClient, describe, expect
-from .models.core import IngredientListItem, NutrientDefinition, Unit
+from .models.core import IngredientListItem, NutrientDefinition, Unit, UnitType
 
 
 @dataclass(frozen=True)
@@ -16,7 +16,7 @@ class Reference:
     """Seedede kataloger testene bruker som fremmednøkler (testene oppretter aldri egne kategorier/enheter til dette)."""
 
     units: dict[str, Unit]  # på forkortelse: g, stk, dl, ss, ml ...
-    unit_type_ids: dict[str, str]  # på navn: vekt, volum, antall
+    unit_type_ids: dict[str, str]  # på dimensjon: Weight, Volume, Count (navnet er bare en etikett og kan endres)
     ingredient_category_id: str
     recipe_category_id: str
     nutrients: list[NutrientDefinition]
@@ -28,7 +28,7 @@ class Reference:
 
 def load_reference(actor: Actor) -> Reference:
     units = expect(actor.core.get("/api/user/units"), 200, list[Unit])
-    unit_types = expect(actor.core.get("/api/user/unit-types"), 200, list[dict])
+    unit_types = expect(actor.core.get("/api/user/unit-types"), 200, list[UnitType])
     ingredient_categories = actor.core.get("/api/user/ingredient-categories").json()
     recipe_categories = actor.core.get("/api/user/recipe-categories").json()
     nutrients = expect(actor.core.get("/api/user/nutrient-definitions"), 200, list[NutrientDefinition])
@@ -36,7 +36,7 @@ def load_reference(actor: Actor) -> Reference:
     assert ingredient_categories and recipe_categories and ingredients, "seed-dataene mangler (kategorier/ingredienser)"
     return Reference(
         units={u.abbreviation: u for u in units},
-        unit_type_ids={t["name"]: t["id"] for t in unit_types},
+        unit_type_ids={t.dimension: t.id for t in unit_types if t.is_system},
         ingredient_category_id=ingredient_categories[0]["id"],
         recipe_category_id=recipe_categories[0]["id"],
         nutrients=nutrients,
@@ -49,7 +49,7 @@ def ingredient_payload(ref: Reference, name: str, **overrides) -> dict:
     payload = {
         "name": name,
         "categoryId": ref.ingredient_category_id,
-        "primaryUnitTypeId": ref.unit_type_ids["vekt"],
+        "primaryUnitTypeId": ref.unit_type_ids["Weight"],
         "defaultUnitId": ref.unit("g"),
         "energyKcal": 100,
         "energyKj": 420,
